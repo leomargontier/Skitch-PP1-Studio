@@ -20,7 +20,7 @@ To send a request, write `[cmd u16 big-endian][payload]`. To get the response, r
 |---|---|---|
 | `0x0000` | Machine info | → info block (see below) |
 | `0x0001` | Machine state | → `[2]` status, `[4]` error code (238 = none) |
-| `0x0100` | Service counters | |
+| `0x0100` | Service counters | → stitches since service (u32 LE), total stitches (u32 LE) |
 | `0x0103` | Maintenance check | → `[2]==1` means maintenance is due |
 | `0x0702` | Get current job UUID | → 16 bytes |
 | `0x0704` | Mask trace (when the "jump cut" setting is on) | `[0]` |
@@ -30,16 +30,20 @@ To send a request, write `[cmd u16 big-endian][payload]`. To get the response, r
 | `0x0708` | Delete design on machine | |
 | `0x0709` | Set start stitch | `u16 LE` |
 | `0x070A` | Set job UUID | 16 bytes → `[2]==0` OK |
-| `0x070B` / `0x070C` | Resume flag / resume | |
+| `0x070B` | Resume flag | → `[2]==1` means an interrupted job can be resumed |
+| `0x070C` | Resume | → `[2]==0` OK. Artspira offers it only when the `0x0702` job UUID matches the job it sent. |
 | `0x070E` | Start sewing | |
 | `0x070F` | Hoop avoidance (move hoop away) | |
 | `0x0710` | Mask trace with box | TL, BR, centre as i16 LE pairs, 0.1 mm from hoop centre |
 | `0x0800` | Embroidery origin | |
-| `0x0B00` | Firmware update start | |
-| `0x0C00`–`0x0C02` | Settings reset / set / get | get → auto-cut, jump-cut, buzzer, foot height, speed |
+| `0x0B00` | Firmware update start | Firmware list: `https://download.brother.com/pub/com/phc_pcs_oneclickupdate/frm/pp1/SewingMachine_upf.json` (public, no login) |
+| `0x0C00` | Settings reset | → `[2]==0` OK |
+| `0x0C01` | Settings set | `[autoCut u8][jumpCut u8][buzzer u8 = 1][foot height u8: 1 standard, 2 high][speed u16 LE = 400]` → `[2]==0` OK. Artspira refuses while sewing. |
+| `0x0C02` | Settings get | → same layout as set |
 | `0x1200` | Data info | `[3][len u32 LE][sum of all bytes u16 LE]` → `[2]==0` OK |
 | `0x1201` | Data chunk (no read) | `[offset u32 LE][bytes][sum of chunk u8]` |
-| `0x1300` / `0x1301` | Clear error / error log | |
+| `0x1300` | Clear error | `[error code u8]` |
+| `0x1301` | Error log | → raw bytes. Artspira only uploads them to Brother. |
 
 After the last chunk, keep reading until the machine answers `[2]==0`. A value of `2` means it is still busy, so wait 1 s and read again. A value of `1` means the transfer failed.
 

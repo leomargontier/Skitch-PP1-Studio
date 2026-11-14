@@ -12,6 +12,12 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 - Sends the design in the same stitch format and transfer sequence as Artspira.
 - Traces the outline, starts sewing and moves the hoop for a thread change.
 - Shows the machine status, errors and progress live, and tells you which thread colour comes next.
+- Rotates by any angle and resizes from 80 to 120 %.
+- Resumes an interrupted job, and starts sewing from any stitch (for example after a thread break).
+- Changes the machine settings: auto thread cut, jump stitch cut and presser foot height. It can also reset them.
+- Shows the stitch counters, warns when maintenance is due and reads the error log.
+- Turns a picture (`.png`, `.jpg`, `.bmp`, `.gif`, `.webp`) into embroidery. It reduces the picture to the thread colours you choose and fills each area with tatami fill stitches.
+- Saves any design as a `.dst` file.
 
 ## Install
 
@@ -54,6 +60,7 @@ The protocol and file format were recovered from Brother Artspira 2.9.10 for And
 
 - The protocol was recovered by reverse engineering. It has not been tested on a physical PP1 yet. Run a scrap-fabric test first.
 - Artspira also supports Wi-Fi machines and Brother's cutting machines. Wi-Fi machines need Brother's cloud account, so they are not supported. The cutting machines use a different cut-data format (FCM), so they are not supported yet.
-- The app has no built-in design editor or lettering. Use any embroidery software that exports PES or DST.
+- The picture converter makes fill stitches only, with no satin borders or underlay. It works best with logos and flat colours.
+- The app has no lettering or stitch-by-stitch editor. Firmware updates are not supported.
 
 Skitch Studio is not affiliated with Brother Industries. "Brother", "SKITCH" and "Artspira" are trademarks of their owners.

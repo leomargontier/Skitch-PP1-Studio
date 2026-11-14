@@ -21,6 +21,9 @@
         <button id="rotR" title="Rotate right" disabled>⟳ 90°</button>
         <button id="flip" title="Mirror" disabled>⇋ Mirror</button>
         <button id="center" title="Centre in hoop" disabled>Centre</button>
+        <label class="num" title="Rotate by any angle">Angle <input id="angle" type="number" min="-360" max="360" step="1" value="0" disabled>°</label>
+        <label class="num" title="Resize. Stitches are spread or packed, so stay near 100 %">Size <input id="scale" type="number" min="80" max="120" step="1" value="100" disabled>%</label>
+        <button id="saveDst" title="Save the design as a .dst file" disabled>Save .dst</button>
         <span class="sep"></span>
         <label class="hoop">Hoop
           <select id="hoop"><option value="100">100 × 100 mm</option><option value="70">70 × 70 mm</option></select>
@@ -28,7 +31,7 @@
       </div>
       <div class="canvas-wrap">
         <canvas id="view" width="640" height="640" aria-label="Design preview in hoop"></canvas>
-        <p class="empty" id="empty">Open or drop a .pes, .dst, .jef, .exp or .pec file</p>
+        <p class="empty" id="empty">Open or drop a .pes, .dst, .jef, .exp or .pec file, or a picture (.png, .jpg) to turn into embroidery</p>
       </div>
       <p class="hint">Drag the design to position it. Arrow keys nudge by 1 mm (Shift: 0.1 mm).</p>
     </section>
@@ -54,6 +57,25 @@
           <button id="trace" disabled title="Needle traces the outline so you can check placement">Trace outline</button>
           <button id="start" disabled>Start sewing</button>
           <button id="avoid" disabled title="Move the hoop away to change thread">Move hoop</button>
+          <button id="resume" disabled title="Continue a job that was interrupted">Resume job</button>
+        </div>
+        <div class="row">
+          <label class="num" title="Start sewing from this stitch, for example after a thread break">Start at stitch <input id="startAt" type="number" min="0" value="0" disabled></label>
+          <button id="setStart" disabled>Set</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Machine settings</h2>
+        <div class="settings">
+          <label><input type="checkbox" id="setAutoCut" disabled> Auto thread cut</label>
+          <label><input type="checkbox" id="setJumpCut" disabled> Jump stitch cut</label>
+          <label>Presser foot height <select id="setFoot" disabled><option value="1">Standard</option><option value="2">High</option></select></label>
+        </div>
+        <div class="row wrap">
+          <button id="saveSettings" disabled>Save settings</button>
+          <button id="resetSettings" disabled>Reset to defaults</button>
+          <button id="errorLog" disabled title="Show the machine's error log in the log below">Error log</button>
         </div>
       </div>
 
@@ -66,6 +88,18 @@
     <p class="muted">Turn the machine on. It shows up here when Bluetooth finds it.</p>
     <ul id="devices"></ul>
     <div class="row end"><button id="pickCancel">Cancel</button></div>
+  </dialog>
+
+  <dialog id="imgDlg">
+    <h2>Picture to embroidery</h2>
+    <p class="muted">Works best with logos, cartoons and flat colours. Photos come out blocky.</p>
+    <div class="settings">
+      <label>Width <input id="imgWidth" type="number" min="10" max="100" value="60"> mm</label>
+      <label>Thread colours <input id="imgColors" type="number" min="1" max="12" value="4"></label>
+      <label>Fill density <select id="imgDensity"><option value="3">Dense</option><option value="4" selected>Normal</option><option value="5">Light</option></select></label>
+      <label><input type="checkbox" id="imgBg" checked> Leave the background unstitched</label>
+    </div>
+    <div class="row end"><button id="imgCancel">Cancel</button><button id="imgGo" class="primary">Make stitches</button></div>
   </dialog>
 
   <script type="module" src="src/ui.js"></script>

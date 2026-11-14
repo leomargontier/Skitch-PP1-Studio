@@ -8,7 +8,7 @@ export const READ_CHAR = 'a76eb9e1-f3ac-4990-84cf-3a94d2426b2b';
 export const WRITE_CHAR = 'a76eb9e2-f3ac-4990-84cf-3a94d2426b2b';
 
 export const CMD = {
-  MACHINE_INFO: 0x0000, MACHINE_STATE: 0x0001, SERVICE_COUNT: 0x0100,
+  MACHINE_INFO: 0x0000, MACHINE_STATE: 0x0001, SERVICE_COUNT: 0x0100, MAINTENANCE: 0x0103,
   EMB_ORIGIN: 0x0800, PATTERN_UUID_REQ: 0x0702, MASK_TRACE: 0x0704, LAYOUT: 0x0705,
   EMB_INFO: 0x0706, EMB_MONITOR: 0x0707, EMB_DELETE: 0x0708, NEEDLE_INDEX: 0x0709,
   EMB_UUID: 0x070a, RESUME_FLAG: 0x070b, RESUME: 0x070c, START_SEWING: 0x070e,
@@ -86,6 +86,25 @@ export function parseMachineInfo(info) {
   };
 }
 
+// 0x0C01 payload, as Artspira builds it: auto-cut, jump-cut, buzzer (always 1), foot height
+// (1 standard, 2 high), sewing speed u16 LE (always 400)
+export const settingsPayload = ({ autoCut, jumpCut, footHeight }) =>
+  [autoCut ? 1 : 0, jumpCut ? 1 : 0, 1, footHeight === 2 ? 2 : 1, ...le16(400)];
+
+export function parseSettings(r) {
+  const d = r.subarray(2);
+  return { autoCut: !!d[0], jumpCut: !!d[1], buzzer: d[2], footHeight: d[3] || 1 };
+}
+
+// 0x0100: stitches since last service, total stitches (u32 LE)
+export function parseServiceCounts(r) {
+  if (!r || r.length < 10) return null;
+  const dv = new DataView(r.buffer, r.byteOffset + 2, r.byteLength - 2);
+  return { sinceService: dv.getUint32(0, true), total: dv.getUint32(4, true) };
+}
+
+export const uuidHex = (r) => [...r.subarray(Math.max(0, r.length - 16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+
 export function parseEmbInfo(r) {
   if (!r || r.length < 16) return null;
   const dv = new DataView(r.buffer, r.byteOffset + 2, r.byteLength - 2);
@@ -127,7 +146,16 @@ export class PP1 {
   }
 
   async info() { return parseMachineInfo(await this.command(CMD.MACHINE_INFO)); }
-  async settings() { const r = await this.command(CMD.SETTINGS_GET); const d = r.subarray(2); return { autoCut: d[0], jumpCut: d[1], buzzer: d[2], footHeight: d[3] }; }
+  async settings() { return parseSettings(await this.command(CMD.SETTINGS_GET)); }
+  async saveSettings(s) { const r = await this.command(CMD.SETTINGS_SET, settingsPayload(s)); if (r[2] !== 0) throw new Error('Machine refused the settings'); }
+  async resetSettings() { const r = await this.command(CMD.SETTINGS_RESET); if (r[2] !== 0) throw new Error('Machine refused the reset'); }
+  async serviceCounts() { return parseServiceCounts(await this.command(CMD.SERVICE_COUNT)); }
+  async maintenanceDue() { const r = await this.command(CMD.MAINTENANCE); return r.length >= 3 && r[2] === 1; }
+  async errorLog() { return (await this.command(CMD.ERROR_LOG)).subarray(2); }
+  // an interrupted job can be resumed when the flag is 1; the job uuid tells whose design it is
+  async canResume() { const r = await this.command(CMD.RESUME_FLAG); return r.length >= 3 && r[2] === 1; }
+  async jobId() { const r = await this.command(CMD.PATTERN_UUID_REQ); return r.length >= 16 ? uuidHex(r) : ''; }
+  async resume() { const r = await this.command(CMD.RESUME); if (r[2] !== 0) throw new Error('Machine could not resume'); }
   async state() { const r = await this.command(CMD.MACHINE_STATE); return { status: r[2], error: r.length > 4 ? r[4] : 221 }; }
   async embInfo() { return parseEmbInfo(await this.command(CMD.EMB_INFO)); }
   async monitor() { return parseMonitor(await this.command(CMD.EMB_MONITOR)); }
@@ -165,5 +193,6 @@ export class PP1 {
     const uuid = crypto.getRandomValues(new Uint8Array(16));
     const u = await this.command(CMD.EMB_UUID, [...uuid]);
     if (u.length < 3 || u[2] !== 0) throw new Error('Machine did not accept the job id');
+    return uuidHex(uuid);
   }
 }

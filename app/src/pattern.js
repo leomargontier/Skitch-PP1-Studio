@@ -55,17 +55,19 @@ export function mapPoints(pattern, fn) {
   };
 }
 
-// Recenter the design on (0,0), then rotate (multiples of 90°) and mirror horizontally.
-export function transform(pattern, { rotate = 0, flip = false } = {}) {
+// Recenter the design on (0,0), mirror horizontally, scale (percent) and rotate (degrees, clockwise).
+// Scaling moves stitches apart or together; keep it near 100 % to keep the stitch density sane.
+export function transform(pattern, { rotate = 0, flip = false, scale = 100 } = {}) {
   const bb = bounds(pattern);
   const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
-  const r = ((rotate % 360) + 360) % 360;
-  return mapPoints(pattern, (x, y) => {
-    let px = x - cx, py = y - cy;
+  const a = (rotate * Math.PI) / 180, k = scale / 100;
+  const cos = Math.round(Math.cos(a) * 1e9) / 1e9, sin = Math.round(Math.sin(a) * 1e9) / 1e9;
+  const out = mapPoints(pattern, (x, y) => {
+    let px = (x - cx) * k, py = (y - cy) * k;
     if (flip) px = -px;
-    if (r === 90) [px, py] = [-py, px];
-    else if (r === 180) [px, py] = [-px, -py];
-    else if (r === 270) [px, py] = [py, -px];
-    return [px, py];
+    return [px * cos - py * sin, px * sin + py * cos];
   });
+  // odd angles leave the box off-centre: centre it again, then snap to 0.1 mm
+  const r = bounds(out), ox = (r.x0 + r.x1) / 2, oy = (r.y0 + r.y1) / 2;
+  return mapPoints(out, (x, y) => [Math.round(x - ox) || 0, Math.round(y - oy) || 0]);
 }

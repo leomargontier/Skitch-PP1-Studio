@@ -2,13 +2,15 @@ import { readEmbroidery } from './formats/readers.js';
 import { toPattern, transform, bounds, stitchCount } from './pattern.js';
 import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
 import { PP1, STATUS, errorText } from './pp1.js';
+import { writeDst } from './formats/dst-writer.js';
+import { imageToStitches, PX } from './image.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view'), ctx = canvas.getContext('2d');
 const SEWING = new Set([17, 48, 49, 50, 64, 65, 66]);
 
 const state = {
-  file: null, raw: null, rotate: 0, flip: false, move: { x: 0, y: 0 },
+  file: null, raw: null, rotate: 0, flip: false, scale: 100, move: { x: 0, y: 0 }, resumable: false, image: null,
   pattern: null, bb: null, sent: null, // sent = {colorStops:[record index]} of the design on the machine
   jumpCut: 0, busy: false, monitorTimer: null, currentColor: -1,
 };
@@ -23,21 +25,53 @@ const hex = (rgb) => '#' + rgb.toString(16).padStart(6, '0');
 const mm = (v) => (v / 10).toFixed(1);
 
 // ---------- design ----------
+const IMAGE = /\.(png|jpe?g|bmp|gif|webp)$/i;
+
 async function loadFile(name, bytes) {
   try {
-    const raw = readEmbroidery(name, bytes);
-    const pat = toPattern(raw);
-    if (!pat.blocks.length) throw new Error('No stitches found');
-    Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, move: { x: 0, y: 0 } });
-    rebuild();
+    if (IMAGE.test(name)) return await loadImage(name, bytes);
+    setDesign(name, readEmbroidery(name, bytes));
     log(`Opened ${name}`);
   } catch (e) { log(`Could not open ${name}: ${e.message}`); alert(e.message); }
 }
 
+function setDesign(name, raw) {
+  const pat = toPattern(raw);
+  if (!pat.blocks.length) throw new Error('No stitches found');
+  Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: { x: 0, y: 0 } });
+  $('angle').value = 0; $('scale').value = 100;
+  rebuild();
+}
+
+// picture -> stitches, settings asked in a dialog
+async function loadImage(name, bytes) {
+  state.image = { name, bmp: await createImageBitmap(new Blob([bytes])) };
+  $('imgDlg').showModal();
+}
+$('imgCancel').onclick = () => $('imgDlg').close();
+$('imgGo').onclick = () => {
+  const { name, bmp } = state.image;
+  try {
+    const maxPx = hoopMm() * 10 / PX; // design must fit the hoop
+    let w = Math.round(Number($('imgWidth').value) * 10 / PX), h = Math.round(w * bmp.height / bmp.width);
+    if (w > maxPx || h > maxPx) { const k = maxPx / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+    const c = new OffscreenCanvas(w, h), g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, w, h);
+    const raw = imageToStitches(g.getImageData(0, 0, w, h), {
+      colors: Math.max(1, Math.min(12, Number($('imgColors').value) || 4)),
+      removeBg: $('imgBg').checked, spacing: Number($('imgDensity').value),
+    });
+    setDesign(name.replace(IMAGE, '') + ' (from picture)', raw);
+    $('imgDlg').close();
+    log(`Made ${stitchCount(state.pattern).toLocaleString()} stitches from ${name}. Check it, then send or save as .dst`);
+  } catch (e) { log(`Picture failed: ${e.message}`); alert(e.message); }
+};
+
 function rebuild() {
-  state.pattern = transform(state.raw, { rotate: state.rotate, flip: state.flip });
+  state.pattern = transform(state.raw, { rotate: state.rotate, flip: state.flip, scale: state.scale });
   state.bb = bounds(state.pattern);
-  ['rotL', 'rotR', 'flip', 'center'].forEach((id) => ($(id).disabled = false));
+  ['rotL', 'rotR', 'flip', 'center', 'angle', 'scale', 'saveDst'].forEach((id) => ($(id).disabled = false));
   $('empty').hidden = true;
   renderInfo();
   draw();
@@ -99,6 +133,13 @@ function draw() {
   ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
   ctx.strokeStyle = fits(box, hoopMm()) ? css.getPropertyValue('--accent') : css.getPropertyValue('--danger');
   ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
+  // where sewing will start when "Start at stitch" is set
+  const r = state.sent?.recs?.[state.startAt];
+  if (state.startAt > 0 && r) {
+    const [px, py] = toPx(r[0] + state.sent.move.x, r[1] + state.sent.move.y);
+    ctx.fillStyle = css.getPropertyValue('--danger');
+    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function setMove(x, y) {
@@ -127,8 +168,19 @@ window.addEventListener('keydown', (e) => {
 });
 
 $('open').onclick = async () => { const f = await window.native.openFile(); if (f) loadFile(f.name, f.bytes); };
-$('rotL').onclick = () => { state.rotate -= 90; rebuild(); };
-$('rotR').onclick = () => { state.rotate += 90; rebuild(); };
+const setAngle = (a) => { state.rotate = ((Math.round(a) % 360) + 360) % 360; $('angle').value = state.rotate; rebuild(); };
+$('rotL').onclick = () => setAngle(state.rotate - 90);
+$('rotR').onclick = () => setAngle(state.rotate + 90);
+$('angle').onchange = () => setAngle(Number($('angle').value) || 0);
+$('scale').onchange = () => {
+  state.scale = Math.max(80, Math.min(120, Math.round(Number($('scale').value) || 100)));
+  $('scale').value = state.scale; rebuild();
+};
+$('saveDst').onclick = async () => {
+  const base = state.file.replace(/\.[^.]*$/, '');
+  const saved = await window.native.saveFile(`${base}.dst`, writeDst(state.pattern, base));
+  if (saved) log(`Saved ${saved}`);
+};
 $('flip').onclick = () => { state.flip = !state.flip; rebuild(); };
 $('center').onclick = () => setMove(0, 0);
 $('hoop').onchange = () => { if (state.pattern) { renderInfo(); updateButtons(); } draw(); };
@@ -174,11 +226,20 @@ $('connect').onclick = async () => {
     log(`Connected to ${name}`);
     setConnected(true, name);
     const info = await pp1.info();
+    let html = '';
     if (info) {
-      $('machineInfo').innerHTML = `<dt>Model</dt><dd>${escapeHtml(info.modelCode || info.model)}</dd>
+      html = `<dt>Model</dt><dd>${escapeHtml(info.modelCode || info.model)}</dd>
         <dt>Serial</dt><dd>${escapeHtml(info.serial)}</dd><dt>Firmware</dt><dd>${escapeHtml(info.firmware)}</dd>`;
     }
-    try { state.jumpCut = (await pp1.settings()).jumpCut; } catch { /* older firmware */ }
+    try {
+      const c = await pp1.serviceCounts();
+      if (c) html += `<dt>Stitches sewn</dt><dd>${c.total.toLocaleString()} (${c.sinceService.toLocaleString()} since service)</dd>`;
+      const due = await pp1.maintenanceDue();
+      html += `<dt>Maintenance</dt><dd style="color:var(${due ? '--danger' : '--ok'})">${due ? 'Due: clean and oil the machine (see manual)' : 'OK'}</dd>`;
+    } catch { /* not answered by older firmware */ }
+    $('machineInfo').innerHTML = html;
+    await loadSettings();
+    await checkResume();
     poll();
   } catch (e) {
     picker.close();
@@ -186,10 +247,30 @@ $('connect').onclick = async () => {
   }
 };
 
+async function loadSettings() {
+  try {
+    const s = await pp1.settings();
+    state.jumpCut = s.jumpCut;
+    $('setAutoCut').checked = s.autoCut; $('setJumpCut').checked = s.jumpCut; $('setFoot').value = String(s.footHeight === 2 ? 2 : 1);
+  } catch { /* older firmware */ }
+}
+
+// The machine keeps an interrupted job. If it is the one this app sent, restore its colour tracking too.
+async function checkResume() {
+  try {
+    state.resumable = await pp1.canResume();
+    if (!state.resumable || state.sent) return;
+    const id = await pp1.jobId();
+    const last = JSON.parse(localStorage.getItem('lastJob') || 'null');
+    if (last && id && last.uuid === id) { state.sent = { ...last, recs: null }; log(`The machine still holds "${last.file}"; you can resume it`); }
+  } catch { state.resumable = false; }
+}
+
 async function poll() {
   if (!pp1.connected || state.busy) return;
   try {
     const { status, error } = await pp1.state();
+    if (status !== state.status && (status === 50 || status === 66)) await checkResume();
     state.status = status;
     $('status').textContent = STATUS[status] ?? `Status ${status}`;
     $('error').textContent = errorText(error);
@@ -223,6 +304,10 @@ function updateButtons() {
   $('trace').disabled = !(on && idle && state.sent);
   $('start').disabled = !(on && idle && state.sent && state.status === 17);
   $('avoid').disabled = !(on && idle);
+  $('resume').disabled = !(on && idle && state.resumable);
+  $('startAt').disabled = $('setStart').disabled = !(on && idle && state.sent);
+  for (const id of ['setAutoCut', 'setJumpCut', 'setFoot', 'saveSettings', 'resetSettings']) $(id).disabled = !(on && idle && state.status !== 48);
+  $('errorLog').disabled = !(on && idle);
 }
 
 async function busy(label, fn) {
@@ -238,13 +323,34 @@ $('send').onclick = () => busy('Send', async () => {
   const layout = { moveX: state.move.x, moveY: state.move.y, frame: fits(box, 70) ? 0 : 1, box };
   log(`Sending ${recs.length} records (${pen.length} bytes)…`);
   $('progress').value = 0;
-  await pp1.sendDesign(pen, layout, { onProgress: (f) => ($('progress').value = f) });
-  state.sent = { colorStops: recs.flatMap((r, i) => (r[2] === FX_COLOR ? [i] : [])), box };
-  state.currentColor = 0; renderInfo();
+  const uuid = await pp1.sendDesign(pen, layout, { onProgress: (f) => ($('progress').value = f) });
+  state.sent = { colorStops: recs.flatMap((r, i) => (r[2] === FX_COLOR ? [i] : [])), box, move: { ...state.move }, file: state.file, uuid };
+  try { localStorage.setItem('lastJob', JSON.stringify(state.sent)); } catch { /* resume info is a convenience */ }
+  state.sent.recs = recs; state.startAt = 0; state.resumable = false;
+  $('startAt').max = recs.length - 1; $('startAt').value = 0;
+  state.currentColor = 0; renderInfo(); draw();
   log('Design sent. Trace the outline to check placement, then start sewing.');
 });
 $('trace').onclick = () => busy('Trace', async () => { await pp1.maskTrace(state.sent.box, state.jumpCut); log('Tracing outline – follow the prompts on the machine'); });
 $('start').onclick = () => busy('Start', async () => { await pp1.startSewing(); log('Sewing started'); });
 $('avoid').onclick = () => busy('Move hoop', async () => { await pp1.hoopAvoidance(); });
+$('resume').onclick = () => busy('Resume', async () => { await pp1.resume(); state.resumable = false; log('Job resumed – press start on the machine if it asks'); });
+$('startAt').oninput = () => { state.startAt = Math.max(0, Math.round(Number($('startAt').value) || 0)); draw(); };
+$('setStart').onclick = () => busy('Start stitch', async () => {
+  const n = Math.min(state.startAt || 0, (state.sent.recs?.length || 65536) - 1);
+  await pp1.setStartStitch(n); log(`Sewing will start at stitch ${n}`);
+});
+$('saveSettings').onclick = () => busy('Save settings', async () => {
+  await pp1.saveSettings({ autoCut: $('setAutoCut').checked, jumpCut: $('setJumpCut').checked, footHeight: Number($('setFoot').value) });
+  state.jumpCut = $('setJumpCut').checked; log('Settings saved on the machine');
+});
+$('resetSettings').onclick = () => busy('Reset settings', async () => {
+  if (!confirm('Reset the machine settings to factory defaults?')) return;
+  await pp1.resetSettings(); await loadSettings(); log('Settings reset to defaults');
+});
+$('errorLog').onclick = () => busy('Error log', async () => {
+  const b = await pp1.errorLog();
+  log(`Error log (${b.length} bytes): ${[...b].map((x) => x.toString(16).padStart(2, '0')).join(' ') || 'empty'}`);
+});
 
 draw();

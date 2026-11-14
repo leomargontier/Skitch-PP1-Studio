@@ -38,11 +38,22 @@ ipcMain.on('bt-select', (_e, id) => { pickBluetooth?.(id || ''); pickBluetooth =
 ipcMain.handle('open-file', async () => {
   const r = await dialog.showOpenDialog(win, {
     properties: ['openFile'],
-    filters: [{ name: 'Embroidery', extensions: ['pes', 'pec', 'dst', 'jef', 'exp'] }],
+    filters: [
+      { name: 'Embroidery or image', extensions: ['pes', 'pec', 'dst', 'jef', 'exp', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] },
+      { name: 'Embroidery', extensions: ['pes', 'pec', 'dst', 'jef', 'exp'] },
+      { name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] },
+    ],
   });
   if (r.canceled || !r.filePaths[0]) return null;
   const p = r.filePaths[0];
   return { name: path.basename(p), bytes: fs.readFileSync(p) };
+});
+
+ipcMain.handle('save-file', async (_e, name, bytes) => {
+  const r = await dialog.showSaveDialog(win, { defaultPath: name, filters: [{ name: 'Tajima DST', extensions: ['dst'] }] });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, Buffer.from(bytes));
+  return path.basename(r.filePath);
 });
 
 app.whenReady().then(createWindow);

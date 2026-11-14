@@ -80,3 +80,55 @@ test('machine info parsing', () => {
   assert.equal(m.firmware.startsWith('1.50'), true);
   assert.equal(m.serial, 'B12345678');
 });
+
+import { writeDst } from '../src/formats/dst-writer.js';
+import { imageToStitches, PX } from '../src/image.js';
+import { settingsPayload, parseServiceCounts, uuidHex } from '../src/pp1.js';
+
+test('DST writer round-trips through the DST reader', () => {
+  const src = toPattern(readEmbroidery('big.dst', fixture('big.dst')));
+  const back = toPattern(readEmbroidery('x.dst', writeDst(src, 'big')));
+  assert.equal(back.blocks.length, src.blocks.length);
+  assert.deepEqual(bounds(back), bounds(src));
+  // long stitches are split, never dropped: every source point is still a needle position
+  const pts = (p) => new Set(p.blocks.flatMap((b) => b.segments.flatMap((s) => s.points.map(String))));
+  const b = pts(back);
+  for (const p of pts(src)) assert.ok(b.has(p), p);
+  assert.deepEqual(back.blocks.map((x) => x.segments.length), src.blocks.map((x) => x.segments.length));
+});
+
+test('image generator: two shapes on white give two fill colours that cover them', () => {
+  const w = 100, h = 60, data = new Uint8Array(w * h * 4).fill(255);
+  const paint = (x0, y0, x1, y1, rgb) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) data.set([...rgb, 255], (y * w + x) * 4); };
+  paint(10, 10, 40, 50, [220, 20, 20]);  // red 30x40 px
+  paint(60, 20, 90, 40, [20, 40, 200]);  // blue 30x20 px
+  data.set([0, 0, 0, 255], (5 * w + 5) * 4); // a 1 px speck: dropped
+  const raw = imageToStitches({ width: w, height: h, data }, { colors: 2 });
+  const pat = toPattern(raw);
+  assert.equal(pat.blocks.length, 2);
+  assert.ok(raw.threads[0].rgb >> 16 > 150, 'larger red area is sewn first');
+  const bb = bounds(pat);
+  assert.ok(Math.abs(bb.w - 80 * PX) <= 2 && Math.abs(bb.h - 40 * PX) <= 4, JSON.stringify(bb));
+  for (const b of pat.blocks) for (const s of b.segments) for (let i = 1; i < s.points.length; i++) {
+    const [a, c] = [s.points[i - 1], s.points[i]];
+    assert.ok(Math.hypot(c[0] - a[0], c[1] - a[1]) <= 45, 'stitch length bounded');
+  }
+  assert.ok(buildRecords(pat).length > 100);
+});
+
+test('settings, service counter and job id helpers', () => {
+  assert.deepEqual(settingsPayload({ autoCut: true, jumpCut: false, footHeight: 2 }), [1, 0, 1, 2, 0x90, 0x01]);
+  assert.deepEqual(parseServiceCounts(Uint8Array.from([1, 0, 0x10, 0x27, 0, 0, 0xa0, 0x86, 1, 0])), { sinceService: 10000, total: 100000 });
+  assert.equal(uuidHex(Uint8Array.from([7, 2, ...Array(15).fill(0), 255])), '0'.repeat(30) + 'ff');
+});
+
+test('image generator sews a ring in a few passes, not with a cut on every row', () => {
+  const w = 120, h = 120, data = new Uint8Array(w * h * 4).fill(255);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const r = Math.hypot(x - 60, y - 60);
+    if (r < 55 && r > 30) data.set([200, 30, 30, 255], (y * w + x) * 4);
+  }
+  const recs = buildRecords(toPattern(imageToStitches({ width: w, height: h, data }, { colors: 1 })));
+  const cuts = recs.filter((r) => r[3] & FY_CUT).length;
+  assert.ok(cuts <= 4, `cuts: ${cuts}`);
+});

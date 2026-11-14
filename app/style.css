@@ -49,4 +49,10 @@ dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--p
 dialog::backdrop { background: rgb(0 0 0 / .4); }
 #devices { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 6px; min-height: 40px; }
 #devices button { width: 100%; text-align: left; }
+.num { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+input[type=number] { width: 64px; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
+.settings { display: grid; gap: 8px; margin-bottom: 10px; }
+.settings label { display: flex; align-items: center; gap: 8px; }
+.toolbar { flex-wrap: wrap; }
+.card .row + .row { margin-top: 8px; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
