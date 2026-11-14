@@ -166,3 +166,17 @@ test('image generator: underlay and outline add stitches but stay inside the sha
   assert.ok(buildRecords(full).filter((r) => r[3] & FY_CUT).length <= 1, 'underlay, fill and outline join without cuts');
 });
 const stitchCountOf = (p) => p.blocks.reduce((n, b) => n + b.segments.reduce((m, s) => m + s.points.length, 0), 0);
+
+import { writePes } from '../src/formats/pes-writer.js';
+test('PES writer round-trips through the PES reader, centred, with colours', () => {
+  const src = toPattern(readEmbroidery('big.dst', fixture('big.dst')));
+  src.blocks.forEach((b, i) => (b.thread = { rgb: [0x000000, 0xed171f, 0x2f7e20][i] }));
+  const out = writePes(src, 'big');
+  assert.equal(String.fromCharCode(...out.subarray(0, 8)), '#PES0001');
+  const back = toPattern(readEmbroidery('x.pes', out));
+  assert.equal(back.blocks.length, 3);
+  assert.deepEqual(back.blocks.map((b) => b.thread.rgb), [0x000000, 0xed171f, 0x2f7e20]);
+  const a = bounds(src), b = bounds(back);
+  assert.deepEqual([b.w, b.h, b.x0 + b.x1, b.y0 + b.y1], [a.w, a.h, 0, 0]);
+  assert.equal(stitchCountOf(back), stitchCountOf(src));
+});

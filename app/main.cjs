@@ -51,7 +51,8 @@ ipcMain.handle('open-file', async () => {
 });
 
 ipcMain.handle('save-file', async (_e, name, bytes) => {
-  const r = await dialog.showSaveDialog(win, { defaultPath: name, filters: [{ name: 'Tajima DST', extensions: ['dst'] }] });
+  const pes = name.toLowerCase().endsWith('.pes');
+  const r = await dialog.showSaveDialog(win, { defaultPath: name, filters: [pes ? { name: 'Brother PES', extensions: ['pes'] } : { name: 'Tajima DST', extensions: ['dst'] }] });
   if (r.canceled || !r.filePath) return null;
   fs.writeFileSync(r.filePath, Buffer.from(bytes));
   return path.basename(r.filePath);

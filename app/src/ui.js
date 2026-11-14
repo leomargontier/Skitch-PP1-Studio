@@ -3,6 +3,7 @@ import { toPattern, transform, bounds, stitchCount, stack } from './pattern.js';
 import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
 import { PP1, STATUS, errorText, isNewer } from './pp1.js';
 import { writeDst } from './formats/dst-writer.js';
+import { writePes } from './formats/pes-writer.js';
 import { imageToStitches, PX } from './image.js';
 
 const $ = (id) => document.getElementById(id);
@@ -121,14 +122,14 @@ $('imgGo').onclick = () => {
     });
     setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(raw));
     $('imgDlg').close();
-    log(`Made ${stitchCount(state.pattern).toLocaleString()} stitches from ${name}. Check it, then send or save as .dst`);
+    log(`Made ${stitchCount(state.pattern).toLocaleString()} stitches from ${name}. Check it, then send it or save it as .pes`);
   } catch (e) { log(`Picture failed: ${e.message}`); alert(e.message); }
 };
 
 function rebuild() {
   state.pattern = transform(state.raw, { rotate: state.rotate, flip: state.flip, scale: state.scale });
   state.bb = bounds(state.pattern);
-  ['rotL', 'rotR', 'flip', 'center', 'angle', 'scale', 'saveDst', 'add'].forEach((id) => ($(id).disabled = false));
+  ['rotL', 'rotR', 'flip', 'center', 'angle', 'scale', 'saveDst', 'savePes', 'add'].forEach((id) => ($(id).disabled = false));
   $('empty').hidden = true;
   renderInfo();
   draw();
@@ -244,11 +245,13 @@ $('scale').onchange = () => {
   state.scale = Math.max(80, Math.min(120, Math.round(Number($('scale').value) || 100)));
   $('scale').value = state.scale; rebuild();
 };
-$('saveDst').onclick = async () => {
-  const base = state.file.replace(/\.[^.]*$/, '');
-  const saved = await window.native.saveFile(`${base}.dst`, writeDst(state.pattern, base));
+const save = async (ext, write) => {
+  const base = state.file.replace(/\.[^.]*$/, '').replace(/[\\/:*?"<>|]/g, '_');
+  const saved = await window.native.saveFile(`${base}.${ext}`, write(state.pattern, base));
   if (saved) log(`Saved ${saved}`);
 };
+$('savePes').onclick = () => save('pes', writePes);
+$('saveDst').onclick = () => save('dst', writeDst);
 $('flip').onclick = () => { remember(); state.flip = !state.flip; rebuild(); };
 $('center').onclick = () => { remember(); setMove(0, 0); };
 $('hoop').onchange = () => { if (state.pattern) { renderInfo(); updateButtons(); } draw(); };

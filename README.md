@@ -22,7 +22,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
   - Thin parts such as lines and letters become satin columns. Curved strokes turn with the curve.
   - Wide parts become tatami fill at the angle you choose, over an underlay, with an outline along each edge.
   - It adds pull compensation, travels only inside the shape (never over bare fabric) and drops stitches too short to sew.
-- Saves any design as a `.dst` file.
+- Saves any design as a Brother `.pes` file (version 1, with thumbnails) or a `.dst` file.
 - Updates the machine firmware from Brother's public download server, after checking the file's checksum, model and version.
 - Makes lettering from any installed font, and adds text, pictures or other designs under the current one.
 
