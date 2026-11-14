@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Skitch Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Skitch Studio</h1>
+    <span class="sub">Brother SKITCH PP1 · offline, no account</span>
+  </header>
+
+  <main>
+    <section class="design" id="drop">
+      <div class="toolbar">
+        <button id="open" class="primary">Open design…</button>
+        <span class="sep"></span>
+        <button id="rotL" title="Rotate left" disabled>⟲ 90°</button>
+        <button id="rotR" title="Rotate right" disabled>⟳ 90°</button>
+        <button id="flip" title="Mirror" disabled>⇋ Mirror</button>
+        <button id="center" title="Centre in hoop" disabled>Centre</button>
+        <span class="sep"></span>
+        <label class="hoop">Hoop
+          <select id="hoop"><option value="100">100 × 100 mm</option><option value="70">70 × 70 mm</option></select>
+        </label>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="view" width="640" height="640" aria-label="Design preview in hoop"></canvas>
+        <p class="empty" id="empty">Open or drop a .pes, .dst, .jef, .exp or .pec file</p>
+      </div>
+      <p class="hint">Drag the design to position it. Arrow keys nudge by 1 mm (Shift: 0.1 mm).</p>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h2>Design</h2>
+        <dl id="designInfo"><dt>File</dt><dd>—</dd></dl>
+        <ol id="colors" class="colors"></ol>
+      </div>
+
+      <div class="card">
+        <h2>Machine</h2>
+        <div class="row">
+          <button id="connect" class="primary">Connect</button>
+          <span id="conn" class="pill off">Not connected</span>
+        </div>
+        <dl id="machineInfo"></dl>
+        <div class="status"><span id="status">—</span><span id="error" class="err"></span></div>
+        <progress id="progress" max="1" value="0"></progress>
+        <div class="row wrap">
+          <button id="send" class="primary" disabled>Send to machine</button>
+          <button id="trace" disabled title="Needle traces the outline so you can check placement">Trace outline</button>
+          <button id="start" disabled>Start sewing</button>
+          <button id="avoid" disabled title="Move the hoop away to change thread">Move hoop</button>
+        </div>
+      </div>
+
+      <div class="card log"><h2>Log</h2><pre id="log"></pre></div>
+    </aside>
+  </main>
+
+  <dialog id="picker">
+    <h2>Choose your SKITCH</h2>
+    <p class="muted">Turn the machine on. It shows up here when Bluetooth finds it.</p>
+    <ul id="devices"></ul>
+    <div class="row end"><button id="pickCancel">Cancel</button></div>
+  </dialog>
+
+  <script type="module" src="src/ui.js"></script>
+</body>
+</html>

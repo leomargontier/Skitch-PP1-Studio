@@ -1,0 +1,5 @@
+node_modules/
+app/dist/
+# reverse-engineering workspace: Brother binaries and decompiled code, keep local
+re/
+*.apkm
