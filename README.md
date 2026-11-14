@@ -19,7 +19,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 - Shows the stitch counters, warns when maintenance is due and reads the error log.
 - Turns a picture (`.png`, `.jpg`, `.bmp`, `.gif`, `.webp`) into embroidery:
   - It reduces the picture to the thread colours you choose, comparing colours the way the eye does (CIE Lab).
-  - Thin parts such as lines and letters become satin columns. Curved strokes turn with the curve.
+  - Thin parts such as lines and letters become satin columns that follow the stroke's centreline, so every stitch crosses the stroke at a right angle, around curves and through forks. A centre-run underlay goes under wider strokes.
   - Wide parts become tatami fill at the angle you choose, over an underlay, with an outline along each edge.
   - It adds pull compensation, travels only inside the shape (never over bare fabric) and drops stitches too short to sew.
 - Saves any design as a Brother `.pes` file (version 1, with thumbnails) or a `.dst` file.
@@ -28,7 +28,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 
 ## Install
 
-Download a build from the GitHub Actions artifacts or from Releases:
+Download the file for your computer from the [latest release](https://github.com/leomargontier/embrodery/releases/latest):
 
 | OS | File |
 |---|---|
@@ -67,8 +67,8 @@ The protocol and file format were recovered from Brother Artspira 2.9.10 for And
 
 - The protocol was recovered by reverse engineering. It has not been tested on a physical PP1 yet. Run a scrap-fabric test first.
 - Artspira also supports Wi-Fi machines and Brother's cutting machines. Wi-Fi machines need Brother's cloud account, so they are not supported. The Snip cutting machine is not supported either: Artspira converts every cut file on a Brother cloud server, and that conversion has no offline equivalent.
-- Lettering uses the fonts installed on your computer and is sewn as fill, so thin or small letters (under about 8 mm) come out rough.
-- The picture converter changes satin direction in 4 mm steps on curves, and the change can show. It works best with logos and flat colours; photos come out posterised. It works best with logos and flat colours.
+- Lettering uses the fonts installed on your computer. Letters smaller than about 5 mm come out rough.
+- The picture converter works best with logos and flat colours; photos come out posterised.
 - The app has no stitch-by-stitch editor, and combined designs move as one piece.
 - The firmware updater copies Artspira's steps but has not been run on a real machine. Interrupting an update can leave the machine unusable.
 

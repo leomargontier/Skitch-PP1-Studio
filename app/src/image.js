@@ -341,6 +341,119 @@ export function imageToStitches(img, {
     }
   };
 
+  // --- satin that follows the stroke: stitches cross the centreline at right angles ---
+  // Zhang-Suen thinning gives the centreline; it is split into branches at forks, each branch is
+  // walked with a centre-run underlay one way and satin back. Returns false if the area has no usable centreline.
+  const N8 = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
+  const skeletonSatin = (a) => {
+    const { box } = a, bw = box.x1 - box.x0 + 3, bh = box.y1 - box.y0 + 3;
+    const m = new Uint8Array(bw * bh);
+    for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) if (comp[y * w + x] === a.id) m[(y - box.y0 + 1) * bw + x - box.x0 + 1] = 1;
+    const nb = (i) => N8.map(([dx, dy]) => m[i + dy * bw + dx]);
+    const crossings = (v) => v.reduce((k, p, j) => k + (!p && v[(j + 1) % 8] ? 1 : 0), 0);
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const pass of [0, 1]) {
+        const del = [];
+        for (let y = 1; y < bh - 1; y++) for (let x = 1; x < bw - 1; x++) {
+          const i = y * bw + x;
+          if (!m[i]) continue;
+          const v = nb(i), n = v.reduce((s, p) => s + p, 0);
+          if (n < 2 || n > 6 || crossings(v) !== 1) continue;
+          if (pass === 0 ? v[0] * v[2] * v[4] || v[2] * v[4] * v[6] : v[0] * v[2] * v[6] || v[0] * v[4] * v[6]) continue;
+          del.push(i);
+        }
+        for (const i of del) m[i] = 0;
+        if (del.length) changed = true;
+      }
+    }
+    // branches between end points / forks (a pixel is a node unless exactly two runs of neighbours touch it)
+    const pts = [];
+    for (let i = 0; i < m.length; i++) if (m[i]) pts.push(i);
+    if (!pts.length) return false;
+    const node = (i) => crossings(nb(i)) !== 2;
+    const seen = new Uint8Array(m.length), branches = [];
+    const walk = (from, first) => {
+      const path = [from];
+      let cur = first, prev = from;
+      while (true) {
+        path.push(cur);
+        if (node(cur) && cur !== from) break;
+        seen[cur] = 1;
+        const nexts = N8.map(([dx, dy]) => cur + dy * bw + dx).filter((j) => m[j] && j !== prev && (!seen[j] || (node(j) && j !== from) || (j === from && path.length > 3)));
+        if (!nexts.length) break;
+        const next = nexts.find((j) => node(j) || j === from) ?? nexts.sort((p, q) => Math.abs(p - cur) % bw === 0 || Math.abs(p - cur) === 1 ? -1 : 1)[0];
+        prev = cur; cur = next;
+        if (cur === from) { path.push(cur); break; }
+      }
+      return path;
+    };
+    for (const i of pts) if (node(i)) for (const [dx, dy] of N8) { const j = i + dy * bw + dx; if (m[j] && !seen[j]) { const p = walk(i, j); if (!node(j)) branches.push(p); else if (i < j) branches.push(p); } }
+    for (const i of pts) if (!seen[i] && !node(i)) { seen[i] = 1; const j = N8.map(([dx, dy]) => i + dy * bw + dx).find((k) => m[k]); if (j != null) branches.push(walk(i, j)); }
+    const toPx = (i) => [(i % bw) + box.x0 - 1 + 0.5, ((i / bw) | 0) + box.y0 - 1 + 0.5];
+    const inside = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y); return xi >= 0 && yi >= 0 && xi < w && yi < h && comp[yi * w + xi] === a.id; };
+    const half = (x, y) => edge[Math.min(h - 1, Math.max(0, Math.floor(y))) * w + Math.min(w - 1, Math.max(0, Math.floor(x)))] / 3;
+    const ray = (x, y, dx, dy, lim) => { let s = 0, last = 0; while (s < lim) { s += 0.25; if (inside(x + dx * s, y + dy * s)) last = s; else if (s - last > 1) break; } return last + 0.25; };
+    const maxHalf = a.widthUnits / PX / 2;
+    // spurs shorter than the stroke is wide are thinning noise
+    let lines = branches.map((b) => b.map(toPx)).filter((b, k) => b.length > 1 && (branches.length === 1 || (!node(branches[k][0]) || !node(branches[k].at(-1)) ? b.length > maxHalf * 1.5 : true)));
+    const total = lines.reduce((s, b) => s + b.length, 0);
+    if (!lines.length || total < maxHalf * 3) return false; // a blob, not a stroke
+    const ends = new Set(pts.filter((i) => crossings(nb(i)) === 1).map((i) => toPx(i).join()));
+    const sewn = [];
+    for (let b of lines) {
+      // smooth (5-point mean) so pixel steps don't wobble the stitch angle; reach out to stroke tips
+      const closed = b.length > 3 && b[0].join() === b.at(-1).join();
+      b = b.map((p, k) => { let sx = 0, sy = 0, n = 0; for (let j = k - 2; j <= k + 2; j++) { const q = closed ? b[(j + b.length - 1) % (b.length - 1)] : b[j]; if (q) { sx += q[0]; sy += q[1]; n++; } } return k === 0 || k === b.length - 1 ? (closed ? [sx / n, sy / n] : p) : [sx / n, sy / n]; });
+      if (!closed) for (const end of [0, 1]) {
+        const p = end ? b.at(-1) : b[0], q = end ? b[Math.max(0, b.length - 4)] : b[Math.min(b.length - 1, 3)];
+        if (!ends.has(`${Math.floor(p[0]) + 0.5},${Math.floor(p[1]) + 0.5}`) && !ends.has(p.join())) continue;
+        const L = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1, dx = (p[0] - q[0]) / L, dy = (p[1] - q[1]) / L;
+        const reach = ray(p[0], p[1], dx, dy, maxHalf * 2 + 2) - 0.75;
+        for (let s = 1; s <= reach; s++) { const e = [p[0] + dx * s, p[1] + dy * s]; end ? b.push(e) : b.unshift(e); }
+      }
+      // resample every row gap along the centreline
+      const samples = [b[0]];
+      let acc = 0;
+      for (let k = 1; k < b.length; k++) {
+        let [x0, y0] = b[k - 1]; const [x1, y1] = b[k], L = Math.hypot(x1 - x0, y1 - y0);
+        let t = 0;
+        while (acc + (L - t) >= gap) { t += gap - acc; acc = 0; samples.push([x0 + ((x1 - x0) * t) / L, y0 + ((y1 - y0) * t) / L]); }
+        acc += L - t;
+      }
+      const rows = [];
+      samples.forEach((p, k) => {
+        const q0 = samples[Math.max(0, k - 2)], q1 = samples[Math.min(samples.length - 1, k + 2)];
+        const L = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]) || 1, nx = -(q1[1] - q0[1]) / L, ny = (q1[0] - q0[0]) / L;
+        const lim = Math.min(maxHalf, half(...p)) * 1.4 + 1.5; // forks: don't run down the other branch
+        const s0 = ray(p[0], p[1], -nx, -ny, lim) + pullPx, s1 = ray(p[0], p[1], nx, ny, lim) + pullPx;
+        if (s0 + s1 < 1.5) return;
+        rows.push({ c: p, A: [p[0] - nx * s0, p[1] - ny * s0], B: [p[0] + nx * s1, p[1] + ny * s1] });
+      });
+      if (rows.length) sewn.push(rows);
+    }
+    if (!sewn.length) return false;
+    const U = ([x, y]) => [Math.round(x * PX - cx), Math.round(y * PX - cy)];
+    while (sewn.length) {
+      let k = 0, rev = false, bd = Infinity;
+      sewn.forEach((r, i) => [0, 1].forEach((e) => { const d = pos ? Math.hypot(...sub(U((e ? r.at(-1) : r[0]).c), pos)) : i; if (d < bd) { bd = d; k = i; rev = !!e; } }));
+      let rows = sewn.splice(k, 1)[0];
+      if (rev) rows = rows.reverse();
+      const width = Math.max(...rows.map((r) => Math.hypot(...sub(r.A, r.B)))) * PX;
+      if (underlay && width >= 15 && rows.length > 2) { // centre run there, satin back over it
+        goTo(...U(rows[0].c));
+        for (const r of rows) stitchTo(...U(r.c), 20);
+        rows = rows.reverse();
+      }
+      rows.forEach((r, i) => {
+        const [p, q] = i % 2 ? [r.B, r.A] : [r.A, r.B];
+        if (i === 0) goTo(...U(p)); else stitchTo(...U(p), SATIN_MAX);
+        stitchTo(...U(q), SATIN_MAX);
+      });
+    }
+    return true;
+  };
+
   // --- areas, colour by colour (largest colour first, details sewn on top) ---
   const areas = list.map((c, id) => {
     const box = { x0: w, y0: h, x1: 0, y1: 0 };
@@ -369,16 +482,15 @@ export function imageToStitches(img, {
       if (pos) todo.forEach((a, i) => { if (Math.hypot(...sub(a.centre, pos)) < Math.hypot(...sub(todo[k].centre, pos))) k = i; });
       const a = todo.splice(k, 1)[0];
       area = a.id;
-      const sat = a.thin ? bestSatinAngle(a.id, a.box) : null;
+      const sat = a.thin && !skeletonSatin(a) ? bestSatinAngle(a.id, a.box) : null; // strokes follow their centreline
       if (sat && sat.long <= 0.1) {
-        // straight-ish stroke: one satin direction across it
+        // a blob too short for a centreline: one satin direction across it
         const deg = sat.deg;
         if (underlay && a.widthUnits >= 15) fill(scan(a.id, a.box, deg, 10, 1.5, 0), stitch, SATIN_MAX); // zigzag underlay
         fill(scan(a.id, a.box, deg, gap, 0, pullPx * 1.5), stitch, SATIN_MAX);
       } else if (sat) {
-        // curved stroke: 4 mm tiles, each with the satin direction that crosses the stroke there
-        satinTiles(a);
-      } else {
+        satinTiles(a); // 4 mm tiles, each with the satin direction that crosses the stroke there
+      } else if (!a.thin) {
         if (underlay && a.area >= 100) fill(scan(a.id, a.box, angle + 90, 20 / PX, 2, 0), 40, 0);
         fill(scan(a.id, a.box, angle, gap, 0, pullPx), stitch, 0);
         if (outline) sewOutline(outlineOf(a.id, a.box));

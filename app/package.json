@@ -1,7 +1,7 @@
 {
   "name": "skitch-studio",
   "productName": "Skitch Studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline desktop app for the Brother SKITCH PP1 embroidery machine. No account needed.",
   "author": { "name": "leomargontier", "email": "leomargontier@users.noreply.github.com" },
   "repository": "github:leomargontier/embrodery",

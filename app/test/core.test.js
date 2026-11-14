@@ -180,3 +180,19 @@ test('PES writer round-trips through the PES reader, centred, with colours', () 
   assert.deepEqual([b.w, b.h, b.x0 + b.x1, b.y0 + b.y1], [a.w, a.h, 0, 0]);
   assert.equal(stitchCountOf(back), stitchCountOf(src));
 });
+
+test('image generator: a thin ring is satin that crosses the stroke, stitches stay on the ring', () => {
+  const w = 150, h = 150, data = new Uint8Array(w * h * 4).fill(255);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const r = Math.hypot(x - 75, y - 75); if (r > 55 && r < 66) data.set([30, 30, 30, 255], (y * w + x) * 4); }
+  const { cmds } = imageToStitches({ width: w, height: h, data }, { colors: 1, pull: 0 });
+  const st = cmds.filter((c) => c.t === 'stitch');
+  // every needle point within 0.6 mm of the ring band (radius 11-13.2 mm), most stitches roughly radial
+  for (const c of st) { const r = Math.hypot(c.x, c.y); assert.ok(r > 104 && r < 138, `r ${r}`); }
+  let radial = 0;
+  for (let i = 1; i < st.length; i++) {
+    const dx = st[i].x - st[i - 1].x, dy = st[i].y - st[i - 1].y, L = Math.hypot(dx, dy);
+    if (L > 15 && Math.abs(dx * st[i].x + dy * st[i].y) / (L * Math.hypot(st[i].x, st[i].y)) > 0.9) radial++;
+  }
+  assert.ok(radial > st.length * 0.3, `radial ${radial}/${st.length}`);
+  assert.ok(cmds.filter((c) => c.t === 'jump').length <= 3);
+});
