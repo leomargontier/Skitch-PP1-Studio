@@ -16,6 +16,8 @@
     <section class="design" id="drop">
       <div class="toolbar">
         <button id="open" class="primary">Open design…</button>
+        <button id="add" title="Add another design or picture under this one" disabled>Add design…</button>
+        <button id="text" title="Make lettering from any installed font">Text…</button>
         <span class="sep"></span>
         <button id="rotL" title="Rotate left" disabled>⟲ 90°</button>
         <button id="rotR" title="Rotate right" disabled>⟳ 90°</button>
@@ -100,6 +102,25 @@
       <label><input type="checkbox" id="imgBg" checked> Leave the background unstitched</label>
     </div>
     <div class="row end"><button id="imgCancel">Cancel</button><button id="imgGo" class="primary">Make stitches</button></div>
+  </dialog>
+
+  <dialog id="txtDlg">
+    <h2>Lettering</h2>
+    <p class="muted">Bold letters 8 mm or taller sew best.</p>
+    <div class="settings">
+      <textarea id="txtText" rows="3" placeholder="Your text"></textarea>
+      <label>Font <input id="txtFont" list="fonts" value="Arial Black, Arial, sans-serif"></label>
+      <datalist id="fonts">
+        <option value="Arial Black, Arial, sans-serif"><option value="Arial, sans-serif"><option value="Georgia, serif">
+        <option value="Times New Roman, serif"><option value="Courier New, monospace"><option value="Impact, sans-serif">
+        <option value="Comic Sans MS, cursive"><option value="Verdana, sans-serif"><option value="Brush Script MT, cursive">
+      </datalist>
+      <label><input type="checkbox" id="txtBold" checked> Bold</label>
+      <label>Letter height <input id="txtSize" type="number" min="5" max="90" value="12"> mm</label>
+      <label>Thread colour <input id="txtColor" type="color" value="#c62828"></label>
+      <label><input type="checkbox" id="txtAdd"> Add under the current design</label>
+    </div>
+    <div class="row end"><button id="txtCancel">Cancel</button><button id="txtGo" class="primary">Make lettering</button></div>
   </dialog>
 
   <script type="module" src="src/ui.js"></script>

@@ -132,3 +132,12 @@ test('image generator sews a ring in a few passes, not with a cut on every row',
   const cuts = recs.filter((r) => r[3] & FY_CUT).length;
   assert.ok(cuts <= 4, `cuts: ${cuts}`);
 });
+
+import { stack } from '../src/pattern.js';
+test('stack puts the second design under the first, centred', () => {
+  const a = { blocks: [{ thread: {}, segments: [{ points: [[0, 0], [100, 50]] }] }] };
+  const b = { blocks: [{ thread: {}, segments: [{ points: [[500, 500], [540, 520]] }] }] };
+  const s = stack(a, b, 30);
+  assert.equal(s.blocks.length, 2);
+  assert.deepEqual(s.blocks[1].segments[0].points, [[30, 80], [70, 100]]);
+});

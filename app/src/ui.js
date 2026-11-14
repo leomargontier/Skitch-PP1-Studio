@@ -1,5 +1,5 @@
 import { readEmbroidery } from './formats/readers.js';
-import { toPattern, transform, bounds, stitchCount } from './pattern.js';
+import { toPattern, transform, bounds, stitchCount, stack } from './pattern.js';
 import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
 import { PP1, STATUS, errorText } from './pp1.js';
 import { writeDst } from './formats/dst-writer.js';
@@ -30,15 +30,18 @@ const IMAGE = /\.(png|jpe?g|bmp|gif|webp)$/i;
 async function loadFile(name, bytes) {
   try {
     if (IMAGE.test(name)) return await loadImage(name, bytes);
-    setDesign(name, readEmbroidery(name, bytes));
+    setDesign(name, toPattern(readEmbroidery(name, bytes)));
     log(`Opened ${name}`);
-  } catch (e) { log(`Could not open ${name}: ${e.message}`); alert(e.message); }
+  } catch (e) { state.adding = false; log(`Could not open ${name}: ${e.message}`); alert(e.message); }
 }
 
-function setDesign(name, raw) {
-  const pat = toPattern(raw);
+// state.adding: the next design goes under the current one instead of replacing it
+function setDesign(name, pat) {
   if (!pat.blocks.length) throw new Error('No stitches found');
-  Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: { x: 0, y: 0 } });
+  const add = state.adding && state.pattern;
+  state.adding = false;
+  if (add) { pat = stack(state.pattern, pat); name = `${state.file} + ${name}`; }
+  Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: add ? state.move : { x: 0, y: 0 } });
   $('angle').value = 0; $('scale').value = 100;
   rebuild();
 }
@@ -48,7 +51,33 @@ async function loadImage(name, bytes) {
   state.image = { name, bmp: await createImageBitmap(new Blob([bytes])) };
   $('imgDlg').showModal();
 }
-$('imgCancel').onclick = () => $('imgDlg').close();
+$('imgCancel').onclick = () => { state.adding = false; $('imgDlg').close(); };
+
+// lettering: draw the text with an installed font, then stitch it like a picture
+const textDlg = $('txtDlg');
+$('text').onclick = () => { $('txtAdd').checked = !!state.pattern; $('txtAdd').disabled = !state.pattern; textDlg.showModal(); };
+$('txtCancel').onclick = () => textDlg.close();
+$('txtGo').onclick = () => {
+  const text = $('txtText').value.trim();
+  if (!text) return;
+  try {
+    const lines = text.split('\n');
+    const px = Math.round(Number($('txtSize').value) * 10 / PX); // letter height in px
+    const font = `${$('txtBold').checked ? 'bold ' : ''}${px}px ${$('txtFont').value}`;
+    const probe = new OffscreenCanvas(1, 1).getContext('2d');
+    probe.font = font;
+    const w = Math.ceil(Math.max(...lines.map((l) => probe.measureText(l).width))) + 8, lh = Math.ceil(px * 1.25);
+    const c = new OffscreenCanvas(w, lh * lines.length + 8), g = c.getContext('2d');
+    g.font = font; g.fillStyle = $('txtColor').value; g.textBaseline = 'top';
+    lines.forEach((l, i) => g.fillText(l, 4, 4 + i * lh));
+    const raw = imageToStitches(g.getImageData(0, 0, c.width, c.height), { colors: 1, minArea: 4 });
+    state.adding = $('txtAdd').checked;
+    setDesign(`"${text.slice(0, 20)}"`, toPattern(raw));
+    textDlg.close();
+    log(`Lettering: ${stitchCount(state.pattern).toLocaleString()} stitches in total`);
+  } catch (e) { log(`Lettering failed: ${e.message}`); alert(e.message); }
+};
+$('add').onclick = async () => { const f = await window.native.openFile(); if (f) { state.adding = true; loadFile(f.name, f.bytes); } };
 $('imgGo').onclick = () => {
   const { name, bmp } = state.image;
   try {
@@ -62,7 +91,7 @@ $('imgGo').onclick = () => {
       colors: Math.max(1, Math.min(12, Number($('imgColors').value) || 4)),
       removeBg: $('imgBg').checked, spacing: Number($('imgDensity').value),
     });
-    setDesign(name.replace(IMAGE, '') + ' (from picture)', raw);
+    setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(raw));
     $('imgDlg').close();
     log(`Made ${stitchCount(state.pattern).toLocaleString()} stitches from ${name}. Check it, then send or save as .dst`);
   } catch (e) { log(`Picture failed: ${e.message}`); alert(e.message); }
@@ -71,7 +100,7 @@ $('imgGo').onclick = () => {
 function rebuild() {
   state.pattern = transform(state.raw, { rotate: state.rotate, flip: state.flip, scale: state.scale });
   state.bb = bounds(state.pattern);
-  ['rotL', 'rotR', 'flip', 'center', 'angle', 'scale', 'saveDst'].forEach((id) => ($(id).disabled = false));
+  ['rotL', 'rotR', 'flip', 'center', 'angle', 'scale', 'saveDst', 'add'].forEach((id) => ($(id).disabled = false));
   $('empty').hidden = true;
   renderInfo();
   draw();

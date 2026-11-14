@@ -71,3 +71,10 @@ export function transform(pattern, { rotate = 0, flip = false, scale = 100 } = {
   const r = bounds(out), ox = (r.x0 + r.x1) / 2, oy = (r.y0 + r.y1) / 2;
   return mapPoints(out, (x, y) => [Math.round(x - ox) || 0, Math.round(y - oy) || 0]);
 }
+
+// Combine two designs: b goes under a, centred, `gap` apart. Colours keep their order (a first).
+export function stack(a, b, gap = 30) {
+  const ba = bounds(a), bb = bounds(b);
+  const dx = Math.round((ba.x0 + ba.x1) / 2 - (bb.x0 + bb.x1) / 2), dy = ba.y1 + gap - bb.y0;
+  return { blocks: [...a.blocks, ...mapPoints(b, (x, y) => [x + dx, y + dy]).blocks] };
+}
