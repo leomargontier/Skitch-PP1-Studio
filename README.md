@@ -1,6 +1,6 @@
-# Skitch Studio
+# Hoopbridge
 
-Skitch Studio is an offline desktop app for the **Brother SKITCH PP1** single-needle embroidery machine. It runs on Windows, macOS and Debian/Ubuntu. You need no account, no login and no cloud.
+Hoopbridge is an offline desktop app that works with the **Brother SKITCH PP1** single-needle embroidery machine. It runs on Windows, macOS and Debian/Ubuntu. You need no account, no login and no cloud.
 
 It does the Skitch part of Brother Artspira. It opens a design, places it in the hoop, sends it over Bluetooth LE and monitors the sewing.
 
@@ -28,13 +28,13 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 
 ## Install
 
-Download the file for your computer from the [latest release](https://github.com/leomargontier/embrodery/releases/latest):
+Download the file for your computer from the [latest release](https://github.com/leomargontier/hoopbridge/releases/latest):
 
 | OS | File |
 |---|---|
-| Debian / Ubuntu | `skitch-studio_<ver>_amd64.deb`: run `sudo apt install ./skitch-studio_*.deb` |
+| Debian / Ubuntu | `hoopbridge_<ver>_amd64.deb`: run `sudo apt install ./hoopbridge_*.deb` |
 | Linux (other) | `.AppImage` |
-| Windows 10/11 | `Skitch Studio Setup <ver>.exe` (installer) or the portable `.exe` |
+| Windows 10/11 | `Hoopbridge Setup <ver>.exe` (installer) or the portable `.exe` |
 | macOS | `.dmg` (x64 and Apple Silicon) |
 
 The builds are unsigned. On Windows, click "More info", then "Run anyway". On macOS, right-click the app, then click Open.
@@ -72,4 +72,4 @@ The protocol and file format were recovered from Brother Artspira 2.9.10 for And
 - The app has no stitch-by-stitch editor, and combined designs move as one piece.
 - The firmware updater copies Artspira's steps but has not been run on a real machine. Interrupting an update can leave the machine unusable.
 
-Skitch Studio is not affiliated with Brother Industries. "Brother", "SKITCH" and "Artspira" are trademarks of their owners.
+Hoopbridge is not affiliated with Brother Industries. "Brother", "SKITCH" and "Artspira" are trademarks of their owners.

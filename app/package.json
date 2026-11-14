@@ -1,11 +1,11 @@
 {
-  "name": "skitch-studio",
-  "productName": "Skitch Studio",
-  "version": "0.2.0",
+  "name": "hoopbridge",
+  "productName": "Hoopbridge",
+  "version": "0.2.1",
   "description": "Offline desktop app for the Brother SKITCH PP1 embroidery machine. No account needed.",
   "author": { "name": "leomargontier", "email": "leomargontier@users.noreply.github.com" },
-  "repository": "github:leomargontier/embrodery",
-  "homepage": "https://github.com/leomargontier/embrodery",
+  "repository": "github:leomargontier/hoopbridge",
+  "homepage": "https://github.com/leomargontier/hoopbridge",
   "license": "MIT",
   "type": "module",
   "main": "main.cjs",
@@ -21,16 +21,16 @@
     "electron-builder": "25.1.8"
   },
   "build": {
-    "appId": "org.skitchstudio.app",
+    "appId": "org.hoopbridge.app",
     "files": ["main.cjs", "preload.cjs", "index.html", "style.css", "src/**/*", "build/icon.png"],
     "directories": { "output": "dist" },
-    "linux": { "category": "Graphics", "icon": "build/icon.png", "maintainer": "Skitch Studio contributors" },
+    "linux": { "category": "Graphics", "icon": "build/icon.png", "maintainer": "Hoopbridge contributors" },
     "deb": { "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1", "libsecret-1-0", "bluez"] },
     "win": { "icon": "build/icon.png" },
     "mac": {
       "icon": "build/icon.png",
       "category": "public.app-category.graphics-design",
-      "extendInfo": { "NSBluetoothAlwaysUsageDescription": "Skitch Studio uses Bluetooth to send designs to your SKITCH embroidery machine." }
+      "extendInfo": { "NSBluetoothAlwaysUsageDescription": "Hoopbridge uses Bluetooth to send designs to your embroidery machine." }
     }
   }
 }
