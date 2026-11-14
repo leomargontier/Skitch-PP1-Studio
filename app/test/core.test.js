@@ -108,10 +108,10 @@ test('image generator: two shapes on white give two fill colours that cover them
   assert.equal(pat.blocks.length, 2);
   assert.ok(raw.threads[0].rgb >> 16 > 150, 'larger red area is sewn first');
   const bb = bounds(pat);
-  assert.ok(Math.abs(bb.w - 80 * PX) <= 2 && Math.abs(bb.h - 40 * PX) <= 4, JSON.stringify(bb));
+  assert.ok(Math.abs(bb.w - 80 * PX) <= 8 && Math.abs(bb.h - 40 * PX) <= 8, JSON.stringify(bb)); // pull compensation widens a little
   for (const b of pat.blocks) for (const s of b.segments) for (let i = 1; i < s.points.length; i++) {
     const [a, c] = [s.points[i - 1], s.points[i]];
-    assert.ok(Math.hypot(c[0] - a[0], c[1] - a[1]) <= 45, 'stitch length bounded');
+    assert.ok(Math.hypot(c[0] - a[0], c[1] - a[1]) <= 75, 'stitch length bounded (satin up to 7 mm + pull compensation)');
   }
   assert.ok(buildRecords(pat).length > 100);
 });

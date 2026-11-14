@@ -117,6 +117,7 @@ $('imgGo').onclick = () => {
       colors: Math.max(1, Math.min(12, Number($('imgColors').value) || 4)),
       removeBg: $('imgBg').checked, spacing: Number($('imgDensity').value),
       underlay: $('imgUnder').checked, outline: $('imgOutline').checked,
+      angle: Number($('imgAngle').value), satin: $('imgSatin').checked,
     });
     setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(raw));
     $('imgDlg').close();
