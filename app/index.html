@@ -16,6 +16,8 @@
     <section class="design" id="drop">
       <div class="toolbar">
         <button id="open" class="primary">Open design…</button>
+        <button id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+        <button id="redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↷</button>
         <button id="add" title="Add another design or picture under this one" disabled>Add design…</button>
         <button id="text" title="Make lettering from any installed font">Text…</button>
         <span class="sep"></span>
@@ -101,6 +103,8 @@
       <label>Thread colours <input id="imgColors" type="number" min="1" max="12" value="4"></label>
       <label>Fill density <select id="imgDensity"><option value="3">Dense</option><option value="4" selected>Normal</option><option value="5">Light</option></select></label>
       <label><input type="checkbox" id="imgBg" checked> Leave the background unstitched</label>
+      <label title="Sparse stitches sewn first so the fill lies flat"><input type="checkbox" id="imgUnder" checked> Underlay</label>
+      <label title="A running stitch around each area for crisp edges"><input type="checkbox" id="imgOutline" checked> Outline edges</label>
     </div>
     <div class="row end"><button id="imgCancel">Cancel</button><button id="imgGo" class="primary">Make stitches</button></div>
   </dialog>

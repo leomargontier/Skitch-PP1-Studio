@@ -79,8 +79,9 @@ function threadFor(c) {
  * @param img {width, height, data: RGBA bytes}, 1 px = PX units
  * @param opts colors: thread count; removeBg: drop the colour that covers most of the border;
  *             spacing: row spacing (0.1 mm); stitch: max stitch length (0.1 mm); minArea: smallest area kept (px)
+ *             underlay: sparse cross rows sewn first to hold the fabric; outline: running stitch around each area
  */
-export function imageToStitches(img, { colors = 4, removeBg = true, spacing = 4, stitch = 30, minArea = 25 } = {}) {
+export function imageToStitches(img, { colors = 4, removeBg = true, spacing = 4, stitch = 30, minArea = 25, underlay = true, outline = true } = {}) {
   const { width: w, height: h, data } = img;
   const opaque = [];
   for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] >= 128) opaque.push([data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]);
@@ -144,16 +145,94 @@ export function imageToStitches(img, { colors = 4, removeBg = true, spacing = 4,
     else { cmds.push({ t: 'jump', x, y }); pos = [x, y]; }
   };
 
-  const sewRun = ({ a, b, y, row }, rightward) => {
-    const uy = Math.round(y * PX + PX / 2 - cy), xa = a * PX - cx, xb = b * PX - cx;
+  // a run is a straight stretch of one area along a scan line: horizontal (top fill) or vertical (underlay)
+  const at = (r, p) => (r.vertical
+    ? [Math.round(r.line * PX + PX / 2 - cx), Math.round(p * PX - cy)]
+    : [Math.round(p * PX - cx), Math.round(r.line * PX + PX / 2 - cy)]);
+  const sewRun = (r, forward, len) => {
     // tatami: stitch ends shift by a third each row so the fill shows no straight furrows
-    const phase = ((row % 3) * stitch) / 3;
-    const xs = [xa];
-    for (let x = Math.floor((xa - phase) / stitch + 1) * stitch + phase; x < xb - 5; x += stitch) if (x > xa + 5) xs.push(x);
-    xs.push(xb);
-    if (!rightward) xs.reverse();
-    goTo(Math.round(xs[0]), uy);
-    for (const x of xs.slice(1)) stitchTo(Math.round(x), uy);
+    const phase = ((r.row % 3) * len) / 3 / PX, step = len / PX;
+    const ps = [r.a];
+    for (let p = Math.floor((r.a - phase) / step + 1) * step + phase; p < r.b - 2.5; p += step) if (p > r.a + 2.5) ps.push(p);
+    ps.push(r.b);
+    if (!forward) ps.reverse();
+    goTo(...at(r, ps[0]));
+    for (const p of ps.slice(1)) stitchTo(...at(r, p));
+  };
+
+  // scan one area into runs, every `gap` px; `inset` px trimmed off both ends (underlay stays inside the edge)
+  const scan = (id, box, vertical, gap, inset) => {
+    const rows = [];
+    const [l0, l1, p1] = vertical ? [box.x0, box.x1, h] : [box.y0, box.y1, w];
+    for (let line = l0 + (gap >> 1), row = 0; line <= l1; line += gap, row++) {
+      const runs = [];
+      let start = -1;
+      for (let p = 0; p <= p1; p++) {
+        const inside = p < p1 && comp[vertical ? p * w + line : line * w + p] === id;
+        if (inside && start < 0) start = p;
+        if (!inside && start >= 0) {
+          if (p - start > inset * 2 + 1) runs.push({ a: start + inset, b: p - inset, line, row, vertical, done: false });
+          start = -1;
+        }
+      }
+      rows.push(runs);
+    }
+    return rows;
+  };
+
+  // serpentine through overlapping runs of consecutive lines; jump only when a branch ends
+  // (a ring is sewn as two halves, not with a jump across the hole on every row)
+  const fill = (rows, len) => {
+    let left = rows.reduce((n, r) => n + r.length, 0), cur = null, forward = true;
+    while (left > 0) {
+      const next = cur && rows[cur.row + 1]?.find((r) => !r.done && r.a < cur.b && r.b > cur.a);
+      if (next) cur = next;
+      else {
+        let best = null, bd = Infinity;
+        for (const r of rows.flat()) {
+          if (r.done) continue;
+          const d = pos ? Math.min(Math.hypot(...sub(at(r, r.a), pos)), Math.hypot(...sub(at(r, r.b), pos))) : r.row;
+          if (d < bd) { bd = d; best = r; }
+        }
+        cur = best;
+        if (pos) forward = Math.hypot(...sub(at(cur, cur.a), pos)) <= Math.hypot(...sub(at(cur, cur.b), pos));
+      }
+      cur.done = true; left--;
+      sewRun(cur, forward, len);
+      forward = !forward;
+    }
+  };
+  const sub = (p, q) => [p[0] - q[0], p[1] - q[1]];
+
+  // outer edge of an area as a running stitch (Moore-neighbour contour trace), for crisp borders
+  const outlineOf = (id, box) => {
+    const inside = (x, y) => x >= 0 && y >= 0 && x < w && y < h && comp[y * w + x] === id;
+    let sx = -1;
+    for (let x = box.x0; x <= box.x1 && sx < 0; x++) if (inside(x, box.y0)) sx = x;
+    const dirs = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+    const pts = [[sx, box.y0]];
+    let [x, y] = [sx, box.y0], d = 6;
+    for (let guard = 0; guard < 4 * (box.x1 - box.x0 + box.y1 - box.y0 + 4) * 4; guard++) {
+      let moved = false;
+      for (let k = 0; k < 8; k++) {
+        const nd = (d + 6 + k) % 8, nx = x + dirs[nd][0], ny = y + dirs[nd][1];
+        if (inside(nx, ny)) { x = nx; y = ny; d = nd; moved = true; break; }
+      }
+      if (!moved || (x === sx && y === box.y0)) break;
+      pts.push([x, y]);
+    }
+    return pts.map(([px, py]) => [Math.round(px * PX + PX / 2 - cx), Math.round(py * PX + PX / 2 - cy)]);
+  };
+  const sewOutline = (pts) => {
+    if (pts.length < 4) return;
+    // start where the needle is closest, walk the loop once, about 2 mm a stitch
+    let k = 0, bd = Infinity;
+    pts.forEach((p, i) => { const dd = pos ? Math.hypot(...sub(p, pos)) : 0; if (dd < bd) { bd = dd; k = i; } });
+    const loop = [...pts.slice(k), ...pts.slice(0, k + 1)];
+    goTo(...loop[0]);
+    let last = loop[0];
+    for (const p of loop.slice(1)) if (Math.hypot(...sub(p, last)) >= 20) { stitchTo(...p); last = p; }
+    stitchTo(...loop.at(-1));
   };
 
   used.forEach(({ l }, ti) => {
@@ -161,40 +240,15 @@ export function imageToStitches(img, { colors = 4, removeBg = true, spacing = 4,
     threads.push(threadFor(centres[l]));
     list.forEach((c, id) => {
       if (c.label !== l) return;
-      let ymin = h, ymax = 0;
-      for (const j of c.px) { const y = (j / w) | 0; if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
-      // all horizontal runs of this area, one row every rowStep px
-      const rows = [];
-      for (let y = ymin, row = 0; y <= ymax; y += rowStep, row++) {
-        const runs = [];
-        let start = -1;
-        for (let x = 0; x <= w; x++) {
-          const inside = x < w && comp[y * w + x] === id;
-          if (inside && start < 0) start = x;
-          if (!inside && start >= 0) { runs.push({ a: start, b: x, y, row, done: false }); start = -1; }
-        }
-        rows.push(runs);
+      const box = { x0: w, y0: h, x1: 0, y1: 0 };
+      for (const j of c.px) {
+        const x = j % w, y = (j / w) | 0;
+        if (x < box.x0) box.x0 = x; if (x > box.x1) box.x1 = x; if (y < box.y0) box.y0 = y; if (y > box.y1) box.y1 = y;
       }
-      // serpentine down through overlapping runs; jump only when a branch ends
-      // (a ring is sewn as two halves, not with a jump across the hole on every row)
-      let left = rows.reduce((n, r) => n + r.length, 0), cur = null, rightward = true;
-      while (left > 0) {
-        const next = cur && rows[cur.row + 1]?.find((r) => !r.done && r.a < cur.b && r.b > cur.a);
-        if (next) cur = next;
-        else {
-          let best = null, bd = Infinity;
-          for (const r of rows.flat()) {
-            if (r.done) continue;
-            const d = pos ? Math.min(Math.hypot(r.a * PX - cx - pos[0], r.y * PX - cy - pos[1]), Math.hypot(r.b * PX - cx - pos[0], r.y * PX - cy - pos[1])) : r.row;
-            if (d < bd) { bd = d; best = r; }
-          }
-          cur = best;
-          if (pos) rightward = Math.abs(cur.a * PX - cx - pos[0]) <= Math.abs(cur.b * PX - cx - pos[0]);
-        }
-        cur.done = true; left--;
-        sewRun(cur, rightward);
-        rightward = !rightward;
-      }
+      // underlay: sparse rows across the fill direction, 2 mm apart, kept inside the edge
+      if (underlay && c.px.length >= 100) fill(scan(id, box, true, Math.round(20 / PX), 2), 40);
+      fill(scan(id, box, false, rowStep, 0), stitch);
+      if (outline) sewOutline(outlineOf(id, box));
     });
   });
   if (!cmds.length) throw new Error('Nothing to stitch: try more colours or turn off background removal');

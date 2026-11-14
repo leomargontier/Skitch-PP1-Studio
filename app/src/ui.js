@@ -21,6 +21,11 @@ function log(msg) {
   $('log').textContent = `${t}  ${msg}\n` + $('log').textContent.slice(0, 20000);
 }
 const hoopMm = () => Number($('hoop').value);
+// lighten (k > 0) or darken (k < 0) a 0xRRGGBB colour
+const shade = (rgb, k) => '#' + [16, 8, 0].map((sh) => {
+  const c = (rgb >> sh) & 255;
+  return Math.round(k > 0 ? c + (255 - c) * k : c * (1 + k)).toString(16).padStart(2, '0');
+}).join('');
 const hex = (rgb) => '#' + rgb.toString(16).padStart(6, '0');
 const mm = (v) => (v / 10).toFixed(1);
 
@@ -35,11 +40,32 @@ async function loadFile(name, bytes) {
   } catch (e) { state.adding = false; log(`Could not open ${name}: ${e.message}`); alert(e.message); }
 }
 
+// undo/redo: snapshots of what the user can change
+const history = { past: [], future: [] };
+const snapshot = () => ({ file: state.file, raw: state.raw, rotate: state.rotate, flip: state.flip, scale: state.scale, move: { ...state.move } });
+function remember() {
+  if (!state.raw) return;
+  history.past.push(snapshot()); history.future = [];
+  if (history.past.length > 50) history.past.shift();
+  undoButtons();
+}
+function restore(from, to) {
+  if (!from.length) return;
+  to.push(snapshot());
+  Object.assign(state, from.pop());
+  $('angle').value = state.rotate; $('scale').value = state.scale;
+  rebuild(); undoButtons();
+}
+const undoButtons = () => { $('undo').disabled = !history.past.length; $('redo').disabled = !history.future.length; };
+$('undo').onclick = () => restore(history.past, history.future);
+$('redo').onclick = () => restore(history.future, history.past);
+
 // state.adding: the next design goes under the current one instead of replacing it
 function setDesign(name, pat) {
   if (!pat.blocks.length) throw new Error('No stitches found');
   const add = state.adding && state.pattern;
   state.adding = false;
+  remember();
   if (add) { pat = stack(state.pattern, pat); name = `${state.file} + ${name}`; }
   Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: add ? state.move : { x: 0, y: 0 } });
   $('angle').value = 0; $('scale').value = 100;
@@ -90,6 +116,7 @@ $('imgGo').onclick = () => {
     const raw = imageToStitches(g.getImageData(0, 0, w, h), {
       colors: Math.max(1, Math.min(12, Number($('imgColors').value) || 4)),
       removeBg: $('imgBg').checked, spacing: Number($('imgDensity').value),
+      underlay: $('imgUnder').checked, outline: $('imgOutline').checked,
     });
     setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(raw));
     $('imgDlg').close();
@@ -120,13 +147,15 @@ function renderInfo() {
   $('designInfo').innerHTML = `
     <dt>File</dt><dd>${escapeHtml(state.file)}</dd>
     <dt>Size</dt><dd>${mm(bb.w)} × ${mm(bb.h)} mm</dd>
-    <dt>Stitches</dt><dd>${stitchCount(p).toLocaleString()}</dd>
+    <dt>Stitches</dt><dd>${stitchCount(p).toLocaleString()} · about ${sewMinutes(p)} min</dd>
     <dt>Colours</dt><dd>${p.blocks.length}</dd>
     <dt>Position</dt><dd>${mm(state.move.x)}, ${mm(state.move.y)} mm</dd>
     <dt>Fits hoop</dt><dd style="color:var(${ok ? '--ok' : '--danger'})">${ok ? 'Yes' : 'No – move or use a smaller design'}</dd>`;
   $('colors').innerHTML = p.blocks.map((b, i) =>
     `<li class="${i === state.currentColor ? 'current' : ''}"><span class="swatch" style="background:${hex(b.thread.rgb)}"></span>${i + 1}. ${escapeHtml(b.thread.name || 'Thread')}</li>`).join('');
 }
+// the PP1 sews at 400 stitches/min; add about a minute per thread change
+const sewMinutes = (p) => Math.max(1, Math.round(stitchCount(p) / 400 + (p.blocks.length - 1)));
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 function view() {
@@ -151,12 +180,15 @@ function draw() {
   }
   if (!state.pattern) return;
   const { x: mx, y: my } = state.move;
-  ctx.lineWidth = Math.max(1, scale * 3); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // thread look: each stitch is a shaded strand (dark edge, light centre), about 0.4 mm wide
+  const tw = Math.max(1.2, scale * 4);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (const b of state.pattern.blocks) {
-    ctx.strokeStyle = hex(b.thread.rgb);
-    ctx.beginPath();
-    for (const s of b.segments) s.points.forEach(([x, y], i) => { const [px, py] = toPx(x + mx, y + my); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
-    ctx.stroke();
+    const path = new Path2D();
+    for (const s of b.segments) s.points.forEach(([x, y], i) => { const [px, py] = toPx(x + mx, y + my); i ? path.lineTo(px, py) : path.moveTo(px, py); });
+    ctx.lineWidth = tw; ctx.strokeStyle = shade(b.thread.rgb, -0.25); ctx.stroke(path);
+    ctx.lineWidth = tw * 0.6; ctx.strokeStyle = hex(b.thread.rgb); ctx.stroke(path);
+    if (tw >= 2.5) { ctx.lineWidth = tw * 0.2; ctx.strokeStyle = shade(b.thread.rgb, 0.35); ctx.stroke(path); }
   }
   const box = placedBox(), [ax, ay] = toPx(box.x0, box.y0), [bx, by] = toPx(box.x1, box.y1);
   ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
@@ -181,6 +213,7 @@ let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
   if (!state.pattern) return;
   canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
+  remember();
   drag = { x: e.clientX, y: e.clientY, mx: state.move.x, my: state.move.y };
 });
 canvas.addEventListener('pointermove', (e) => {
@@ -190,18 +223,23 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerup', () => { drag = null; canvas.classList.remove('dragging'); });
 window.addEventListener('keydown', (e) => {
-  if (!state.pattern || e.target.closest('select,dialog')) return;
+  if (e.target.closest('input,textarea,select,dialog')) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); $('undo').click(); return; }
+  if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); $('redo').click(); return; }
+  if (!state.pattern) return;
   const step = e.shiftKey ? 1 : 10;
   const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-  if (d) { e.preventDefault(); setMove(state.move.x + d[0], state.move.y + d[1]); }
+  if (d) { e.preventDefault(); if (!e.repeat) remember(); setMove(state.move.x + d[0], state.move.y + d[1]); }
 });
 
 $('open').onclick = async () => { const f = await window.native.openFile(); if (f) loadFile(f.name, f.bytes); };
-const setAngle = (a) => { state.rotate = ((Math.round(a) % 360) + 360) % 360; $('angle').value = state.rotate; rebuild(); };
+const setAngle = (a) => { remember(); state.rotate = ((Math.round(a) % 360) + 360) % 360; $('angle').value = state.rotate; rebuild(); };
 $('rotL').onclick = () => setAngle(state.rotate - 90);
 $('rotR').onclick = () => setAngle(state.rotate + 90);
 $('angle').onchange = () => setAngle(Number($('angle').value) || 0);
 $('scale').onchange = () => {
+  remember();
   state.scale = Math.max(80, Math.min(120, Math.round(Number($('scale').value) || 100)));
   $('scale').value = state.scale; rebuild();
 };
@@ -210,8 +248,8 @@ $('saveDst').onclick = async () => {
   const saved = await window.native.saveFile(`${base}.dst`, writeDst(state.pattern, base));
   if (saved) log(`Saved ${saved}`);
 };
-$('flip').onclick = () => { state.flip = !state.flip; rebuild(); };
-$('center').onclick = () => setMove(0, 0);
+$('flip').onclick = () => { remember(); state.flip = !state.flip; rebuild(); };
+$('center').onclick = () => { remember(); setMove(0, 0); };
 $('hoop').onchange = () => { if (state.pattern) { renderInfo(); updateButtons(); } draw(); };
 
 const drop = $('drop');

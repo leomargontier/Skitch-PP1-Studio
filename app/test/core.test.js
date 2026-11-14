@@ -153,3 +153,16 @@ test('firmware helpers', () => {
   assert.equal(firmwareTarget(Uint8Array.from([0])), 0);
   assert.deepEqual(dataInfoPayload(Uint8Array.from([1, 2]), 4), [4, 2, 0, 0, 0, 3, 0]);
 });
+
+test('image generator: underlay and outline add stitches but stay inside the shape', () => {
+  const w = 80, h = 80, data = new Uint8Array(w * h * 4).fill(255);
+  for (let y = 10; y < 70; y++) for (let x = 10; x < 70; x++) data.set([20, 120, 40, 255], (y * w + x) * 4);
+  const img = { width: w, height: h, data };
+  const plain = toPattern(imageToStitches(img, { colors: 1, underlay: false, outline: false }));
+  const full = toPattern(imageToStitches(img, { colors: 1 }));
+  assert.ok(stitchCountOf(full) > stitchCountOf(plain));
+  const a = bounds(plain), b = bounds(full);
+  assert.ok(b.w <= a.w + 2 && b.h <= a.h + 4, `${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+  assert.ok(buildRecords(full).filter((r) => r[3] & FY_CUT).length <= 1, 'underlay, fill and outline join without cuts');
+});
+const stitchCountOf = (p) => p.blocks.reduce((n, b) => n + b.segments.reduce((m, s) => m + s.points.length, 0), 0);
