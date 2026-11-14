@@ -14,7 +14,7 @@ export const CMD = {
   EMB_UUID: 0x070a, RESUME_FLAG: 0x070b, RESUME: 0x070c, START_SEWING: 0x070e,
   HOOP_AVOIDANCE: 0x070f, MASK_TRACE_BOUNDS: 0x0710, SETTINGS_RESET: 0x0c00,
   SETTINGS_SET: 0x0c01, SETTINGS_GET: 0x0c02, DATA_INFO: 0x1200, DATA: 0x1201,
-  CLEAR_ERROR: 0x1300, ERROR_LOG: 0x1301,
+  CLEAR_ERROR: 0x1300, ERROR_LOG: 0x1301, FIRMWARE_START: 0x0b00,
 };
 
 export const STATUS = {
@@ -45,8 +45,23 @@ const le16 = (v) => [v & 0xff, (v >> 8) & 0xff];
 const le32 = (v) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff];
 const sum = (bytes) => bytes.reduce((a, b) => a + b, 0);
 
-// 0x1200 payload: [3][len u32 LE][byte sum u16 LE]
-export const dataInfoPayload = (pen) => [3, ...le32(pen.length), ...le16(sum(pen) & 0xffff)];
+// 0x1200 payload: [type][len u32 LE][byte sum u16 LE]; type 3 = stitch data, 4 = firmware
+export const dataInfoPayload = (pen, type = 3) => [type, ...le32(pen.length), ...le16(sum(pen) & 0xffff)];
+
+// Firmware (.upf) header: [count u8] then 9-byte entries whose first byte is the chip (1 main, 2 Bluetooth).
+// 0x0B00 takes 1, 2 or 3 (both).
+export function firmwareTarget(upf) {
+  const types = new Set();
+  for (let i = 0; i < upf[0]; i++) types.add(upf[1 + 9 * i]);
+  return types.has(1) && types.has(2) ? 3 : types.has(1) ? 1 : types.has(2) ? 2 : 0;
+}
+
+// "1.04.00" vs "1.3.5": true when a is newer than b (numeric parts, like .NET Version)
+export function isNewer(a, b) {
+  const pa = String(a).split(/[.,]/).map(Number), pb = String(b).split(/[.,]/).map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
 
 // 0x1201 payloads: [offset u32 LE][chunk][byte sum of chunk u8]
 export function dataChunks(pen, chunkSize) {
@@ -80,6 +95,7 @@ export function parseMachineInfo(info) {
     productId: d[11].toString(16),
     bluetoothVersion: dv.getInt16(24, false),
     model: d[26],
+    oem: d[27],
     maxWidthMm: dv.getInt16(29, true) / 10,
     maxHeightMm: dv.getInt16(31, true) / 10,
     modelCode: ascii(39, 11),
@@ -173,6 +189,29 @@ export class PP1 {
   }
 
   // Full transfer as done by Artspira: delete -> info -> chunks -> wait -> layout -> job uuid
+  // Firmware update as done by Artspira: data info type 4 -> chunks -> wait for the length echo -> 0x0B00.
+  // The machine then reboots and drops the connection.
+  async updateFirmware(upf, { chunkSize = 180, onProgress = () => {} } = {}) {
+    const target = firmwareTarget(upf);
+    if (!target) throw new Error('Not a SKITCH firmware file');
+    const r = await this.command(CMD.DATA_INFO, dataInfoPayload(upf, 4));
+    if (r.length < 3 || r[2] !== 0) throw new Error(`Machine refused the firmware (code ${r[2]})`);
+    const chunks = dataChunks(upf, chunkSize);
+    for (let i = 0; i < chunks.length; i++) {
+      await this.#locked(() => this.#write(frame(CMD.DATA, chunks[i])));
+      onProgress((i + 1) / chunks.length);
+    }
+    for (let tries = 0; ; tries++) {
+      const s = await this.#locked(() => this.#read());
+      if (s.length >= 3 && s[2] === 1) throw new Error('Machine rejected the firmware data');
+      if (s.length >= 7 && s[2] === 0 && new DataView(s.buffer, s.byteOffset + 3, 4).getUint32(0, true) === upf.length) break;
+      if (tries >= 20) throw new Error('Machine did not confirm the firmware data');
+      await sleep(500);
+    }
+    const f = await this.command(CMD.FIRMWARE_START, [target]);
+    if (f.length !== 3 || f[2] !== 0) throw new Error('Machine did not start the update');
+  }
+
   async sendDesign(pen, layout, { chunkSize = 180, onProgress = () => {} } = {}) {
     await this.command(CMD.EMB_DELETE);
     const r = await this.command(CMD.DATA_INFO, dataInfoPayload(pen));

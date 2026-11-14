@@ -18,6 +18,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 - Shows the stitch counters, warns when maintenance is due and reads the error log.
 - Turns a picture (`.png`, `.jpg`, `.bmp`, `.gif`, `.webp`) into embroidery. It reduces the picture to the thread colours you choose and fills each area with tatami fill stitches.
 - Saves any design as a `.dst` file.
+- Updates the machine firmware from Brother's public download server, after checking the file's checksum, model and version.
 - Makes lettering from any installed font, and adds text, pictures or other designs under the current one.
 
 ## Install
@@ -60,9 +61,10 @@ The protocol and file format were recovered from Brother Artspira 2.9.10 for And
 ## Limits
 
 - The protocol was recovered by reverse engineering. It has not been tested on a physical PP1 yet. Run a scrap-fabric test first.
-- Artspira also supports Wi-Fi machines and Brother's cutting machines. Wi-Fi machines need Brother's cloud account, so they are not supported. The cutting machines use a different cut-data format (FCM), so they are not supported yet.
+- Artspira also supports Wi-Fi machines and Brother's cutting machines. Wi-Fi machines need Brother's cloud account, so they are not supported. The Snip cutting machine is not supported either: Artspira converts every cut file on a Brother cloud server, and that conversion has no offline equivalent.
 - Lettering uses the fonts installed on your computer and is sewn as fill, so thin or small letters (under about 8 mm) come out rough.
 - The picture converter makes fill stitches only, with no satin borders or underlay. It works best with logos and flat colours.
-- The app has no stitch-by-stitch editor, and combined designs move as one piece. Firmware updates are not supported.
+- The app has no stitch-by-stitch editor, and combined designs move as one piece.
+- The firmware updater copies Artspira's steps but has not been run on a real machine. Interrupting an update can leave the machine unusable.
 
 Skitch Studio is not affiliated with Brother Industries. "Brother", "SKITCH" and "Artspira" are trademarks of their owners.

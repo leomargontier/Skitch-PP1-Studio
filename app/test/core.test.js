@@ -141,3 +141,15 @@ test('stack puts the second design under the first, centred', () => {
   assert.equal(s.blocks.length, 2);
   assert.deepEqual(s.blocks[1].segments[0].points, [[30, 80], [70, 100]]);
 });
+
+import { firmwareTarget, isNewer } from '../src/pp1.js';
+test('firmware helpers', () => {
+  assert.equal(isNewer('1.04.00', '1.03.5'), true);
+  assert.equal(isNewer('1.04.00', '1.04.0'), false);
+  assert.equal(isNewer('1.4', '1.10'), false);
+  const two = new Uint8Array(19); two[0] = 2; two[1] = 1; two[10] = 2;
+  assert.equal(firmwareTarget(two), 3);
+  assert.equal(firmwareTarget(Uint8Array.from([1, 2, 0, 0, 0, 0, 0, 0, 0, 0])), 2);
+  assert.equal(firmwareTarget(Uint8Array.from([0])), 0);
+  assert.deepEqual(dataInfoPayload(Uint8Array.from([1, 2]), 4), [4, 2, 0, 0, 0, 3, 0]);
+});

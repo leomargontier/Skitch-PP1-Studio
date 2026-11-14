@@ -80,3 +80,15 @@ Artspira's converter also does the following:
 - It cuts (`FEED|CUT` on the target, with a tie-off first) before any hop of 5.1 mm or more. It does this even when the source file asked for a trim, and it ignores trims on shorter hops.
 - On a short hop, it sets FEED on both the last stitch and the target.
 - It ties off before a colour change and sets the colour flag on the last stitch of that colour. It does not tie off at the end of the design.
+
+## Firmware update (Artspira `BLESoftwareUpdateManager`)
+
+1. Read the firmware list from `SewingMachine_upf.json`. Pick the newest entry where `type` equals the info block's model (byte 26, 0 means 2) and `oem` equals byte 27 (0 means 1).
+2. Download `dl_url` and check it against `filemd5`.
+3. Send `0x1200` with `[4][len u32 LE][sum u16 LE]`, then the file in `0x1201` chunks, the same way as stitch data.
+4. Read until `[2]==0` and the u32 LE at `[3..6]` equals the file length. A value of `[2]==1` means the data was rejected.
+5. Send `0x0B00` with the chip byte. The `.upf` header is `[count]` followed by 9-byte entries whose first byte is the chip (1 main, 2 Bluetooth). Send 3 when the file updates both. The machine reboots.
+
+## Snip cutting machine
+
+The Snip uses its own command set (`SnipBLEDeviceManager`). Artspira does not send FCM cut files directly. It posts them to a Brother AWS Lambda, which converts them to a compressed FCN format, and the app has no offline converter. Without FCN samples captured from a real machine, the Snip cannot be supported offline.

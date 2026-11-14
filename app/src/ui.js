@@ -1,7 +1,7 @@
 import { readEmbroidery } from './formats/readers.js';
 import { toPattern, transform, bounds, stitchCount, stack } from './pattern.js';
 import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
-import { PP1, STATUS, errorText } from './pp1.js';
+import { PP1, STATUS, errorText, isNewer } from './pp1.js';
 import { writeDst } from './formats/dst-writer.js';
 import { imageToStitches, PX } from './image.js';
 
@@ -255,6 +255,7 @@ $('connect').onclick = async () => {
     log(`Connected to ${name}`);
     setConnected(true, name);
     const info = await pp1.info();
+    state.info = info;
     let html = '';
     if (info) {
       html = `<dt>Model</dt><dd>${escapeHtml(info.modelCode || info.model)}</dd>
@@ -337,6 +338,7 @@ function updateButtons() {
   $('startAt').disabled = $('setStart').disabled = !(on && idle && state.sent);
   for (const id of ['setAutoCut', 'setJumpCut', 'setFoot', 'saveSettings', 'resetSettings']) $(id).disabled = !(on && idle && state.status !== 48);
   $('errorLog').disabled = !(on && idle);
+  $('firmware').disabled = !(on && idle && state.info && ![18, 33, 48, 81, 96].includes(state.status));
 }
 
 async function busy(label, fn) {
@@ -376,6 +378,23 @@ $('saveSettings').onclick = () => busy('Save settings', async () => {
 $('resetSettings').onclick = () => busy('Reset settings', async () => {
   if (!confirm('Reset the machine settings to factory defaults?')) return;
   await pp1.resetSettings(); await loadSettings(); log('Settings reset to defaults');
+});
+$('firmware').onclick = () => busy('Firmware update', async () => {
+  const { firmware, model, oem } = state.info;
+  const list = await window.native.firmwareList();
+  const latest = list.filter((f) => f.type === (model || 2) && f.oem === (oem || 1))
+    .sort((a, b) => (isNewer(a.version, b.version) ? -1 : 1))[0];
+  if (!latest) { alert('Brother lists no firmware for this machine.'); return; }
+  if (!isNewer(latest.version, firmware)) { alert(`Firmware ${firmware} is up to date (latest ${latest.version}).`); return; }
+  if (!confirm(`Update the machine from ${firmware} to ${latest.version}?\n\n` +
+    'Keep the machine switched on and close to this computer, and do not close the app until it finishes. ' +
+    'Interrupting a firmware update can leave the machine unusable. This updater has not been tested on a real machine.')) return;
+  log(`Downloading firmware ${latest.version}…`);
+  const upf = await window.native.firmwareDownload(latest.dl_url, latest.filemd5);
+  log(`Sending firmware (${upf.length} bytes)…`);
+  $('progress').value = 0;
+  await pp1.updateFirmware(upf, { onProgress: (f) => ($('progress').value = f) });
+  log('Firmware sent. The machine restarts to install it: wait about 30 s, then connect again and check the version.');
 });
 $('errorLog').onclick = () => busy('Error log', async () => {
   const b = await pp1.errorLog();
