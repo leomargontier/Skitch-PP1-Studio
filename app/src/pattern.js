@@ -19,11 +19,11 @@ export function toPattern({ threads, cmds }) {
     if (!seg || pendingJump) {
       // the needle sits at the jump target; it becomes the segment's first penetration
       seg = { trim: pendingTrim, points: [] };
-      if (jumpTarget && (jumpTarget[0] !== c.x || jumpTarget[1] !== c.y)) seg.points.push(jumpTarget);
+      if (jumpTarget && (jumpTarget[0] !== c.x || jumpTarget[1] !== c.y)) seg.points.push(c.o == null ? jumpTarget : [...jumpTarget, c.o]);
       block.segments.push(seg);
       pendingJump = false; pendingTrim = false;
     }
-    seg.points.push([c.x, c.y]);
+    seg.points.push(c.o == null ? [c.x, c.y] : [c.x, c.y, c.o]); // 3rd value: editable object it belongs to
     jumpTarget = null;
   }
   for (const b of blocks) b.segments = b.segments.filter((s) => s.points.length > 1);
@@ -50,7 +50,7 @@ export function mapPoints(pattern, fn) {
   return {
     blocks: pattern.blocks.map((b) => ({
       ...b,
-      segments: b.segments.map((s) => ({ ...s, points: s.points.map(([x, y]) => fn(x, y)) })),
+      segments: b.segments.map((s) => ({ ...s, points: s.points.map((p) => (p.length > 2 ? [...fn(p[0], p[1]), p[2]] : fn(p[0], p[1]))) })),
     })),
   };
 }

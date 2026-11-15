@@ -4,7 +4,7 @@ import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
 import { PP1, STATUS, errorText, isNewer } from './pp1.js';
 import { writeDst } from './formats/dst-writer.js';
 import { writePes } from './formats/pes-writer.js';
-import { imageToStitches, PX } from './image.js';
+import { analyze, defaultObjects, stitchObjects, threadName, PX } from './image.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view'), ctx = canvas.getContext('2d');
@@ -43,7 +43,8 @@ async function loadFile(name, bytes) {
 
 // undo/redo: snapshots of what the user can change
 const history = { past: [], future: [] };
-const snapshot = () => ({ file: state.file, raw: state.raw, rotate: state.rotate, flip: state.flip, scale: state.scale, move: { ...state.move } });
+const snapshot = () => ({ file: state.file, raw: state.raw, rotate: state.rotate, flip: state.flip, scale: state.scale, move: { ...state.move },
+  edit: state.edit && { ...state.edit, objects: structuredClone(state.edit.objects) } });
 function remember() {
   if (!state.raw) return;
   history.past.push(snapshot()); history.future = [];
@@ -62,13 +63,14 @@ $('undo').onclick = () => restore(history.past, history.future);
 $('redo').onclick = () => restore(history.future, history.past);
 
 // state.adding: the next design goes under the current one instead of replacing it
-function setDesign(name, pat) {
+// edit: { model, objects, sel } when the design was made here (picture or lettering) and can be edited object by object
+function setDesign(name, pat, edit = null) {
   if (!pat.blocks.length) throw new Error('No stitches found');
   const add = state.adding && state.pattern;
   state.adding = false;
   remember();
-  if (add) { pat = stack(state.pattern, pat); name = `${state.file} + ${name}`; }
-  Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: add ? state.move : { x: 0, y: 0 } });
+  if (add) { pat = stack(state.pattern, pat); name = `${state.file} + ${name}`; edit = null; } // combined designs are fixed stitches
+  Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: add ? state.move : { x: 0, y: 0 }, edit });
   $('angle').value = 0; $('scale').value = 100;
   rebuild();
 }
@@ -97,9 +99,10 @@ $('txtGo').onclick = () => {
     const c = new OffscreenCanvas(w, lh * lines.length + 8), g = c.getContext('2d');
     g.font = font; g.fillStyle = $('txtColor').value; g.textBaseline = 'top';
     lines.forEach((l, i) => g.fillText(l, 4, 4 + i * lh));
-    const raw = imageToStitches(g.getImageData(0, 0, c.width, c.height), { colors: 1, minArea: 4 });
+    const model = analyze(g.getImageData(0, 0, c.width, c.height), { colors: 1, minArea: 4 });
+    const edit = { model, objects: defaultObjects(model), sel: -1 };
     state.adding = $('txtAdd').checked;
-    setDesign(`"${text.slice(0, 20)}"`, toPattern(raw));
+    setDesign(`"${text.slice(0, 20)}"`, toPattern(stitchObjects(model, edit.objects)), edit);
     textDlg.close();
     log(`Lettering: ${stitchCount(state.pattern).toLocaleString()} stitches in total`);
   } catch (e) { log(`Lettering failed: ${e.message}`); alert(e.message); }
@@ -114,13 +117,15 @@ $('imgGo').onclick = () => {
     const c = new OffscreenCanvas(w, h), g = c.getContext('2d');
     g.imageSmoothingQuality = 'high';
     g.drawImage(bmp, 0, 0, w, h);
-    const raw = imageToStitches(g.getImageData(0, 0, w, h), {
+    const opts = {
       colors: Math.max(1, Math.min(12, Number($('imgColors').value) || 4)),
-      removeBg: $('imgBg').checked, spacing: Number($('imgDensity').value),
+      removeBg: $('imgBg').checked, bgTolerance: Number($('imgBgTol').value), spacing: Number($('imgDensity').value),
       underlay: $('imgUnder').checked, outline: $('imgOutline').checked,
       angle: Number($('imgAngle').value), satin: $('imgSatin').checked,
-    });
-    setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(raw));
+    };
+    const model = analyze(g.getImageData(0, 0, w, h), opts);
+    const edit = { model, objects: defaultObjects(model, opts), sel: -1 };
+    setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(stitchObjects(model, edit.objects)), edit);
     $('imgDlg').close();
     log(`Made ${stitchCount(state.pattern).toLocaleString()} stitches from ${name}. Check it, then send it or save it as .pes`);
   } catch (e) { log(`Picture failed: ${e.message}`); alert(e.message); }
@@ -131,9 +136,97 @@ function rebuild() {
   state.bb = bounds(state.pattern);
   ['rotL', 'rotR', 'flip', 'center', 'angle', 'scale', 'saveDst', 'savePes', 'add'].forEach((id) => ($(id).disabled = false));
   $('empty').hidden = true;
+  const n = stitchCount(state.pattern), player = $('player');
+  player.disabled = false; player.max = n; player.value = n; $('playerN').textContent = '';
   renderInfo();
+  renderObjects();
   draw();
   updateButtons();
+}
+
+// ---------- object editor (pictures and lettering made here) ----------
+const TYPE_NAME = { auto: 'Auto', satin: 'Satin', fill: 'Fill', outline: 'Outline' };
+const objOf = () => state.edit?.objects[state.edit.sel];
+function renderObjects() {
+  const ed = state.edit;
+  $('objCard').hidden = !ed;
+  if (!ed) return;
+  const areas = ed.model.areas;
+  $('objList').innerHTML = ed.objects.map((o, i) => {
+    const a = areas[o.area], t = o.type === 'auto' ? (a.thin ? 'Satin' : 'Fill') : TYPE_NAME[o.type];
+    const size = `${mm((a.box.x1 - a.box.x0 + 1) * PX)} × ${mm((a.box.y1 - a.box.y0 + 1) * PX)} mm`;
+    return `<li data-i="${i}" class="${i === ed.sel ? 'sel' : ''}"><span class="swatch" style="background:${hex(o.rgb)}"></span>${i + 1}. ${t} · ${size}</li>`;
+  }).join('');
+  $('objList').querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
+  const o = objOf();
+  $('objProps').querySelectorAll('input,select,button').forEach((el) => (el.disabled = !o));
+  ['objUp', 'objDown', 'objDel'].forEach((id) => ($(id).disabled = !o));
+  $('remake').disabled = !state.image;
+  if (!o) { $('oColorName').textContent = 'Click an object in the list or on the design'; return; }
+  $('oType').value = o.type; $('oAngle').value = o.angle; $('oSpacing').value = o.spacing / 10; $('oStitch').value = o.stitch / 10;
+  $('oPull').value = o.pull / 10; $('oUnder').checked = o.underlay; $('oOutline').checked = o.outline;
+  $('oColor').value = hex(o.rgb); $('oColorName').textContent = threadName(o.rgb);
+}
+// re-stitch after an edit; the untouched objects stay where they were on the fabric
+function applyEdit(change) {
+  remember();
+  change(state.edit);
+  const before = bounds(state.raw);
+  let pat;
+  try { pat = toPattern(stitchObjects(state.edit.model, state.edit.objects)); } catch (e) { restore(history.past, []); alert(e.message); return; }
+  if (!pat.blocks.length) { restore(history.past, []); alert('A design needs at least one object'); return; }
+  const after = bounds(pat), k = state.scale / 100, a = (state.rotate * Math.PI) / 180;
+  let dx = ((after.x0 + after.x1 - before.x0 - before.x1) / 2) * k, dy = ((after.y0 + after.y1 - before.y0 - before.y1) / 2) * k;
+  if (state.flip) dx = -dx;
+  state.move = { x: Math.round(state.move.x + dx * Math.cos(a) - dy * Math.sin(a)), y: Math.round(state.move.y + dx * Math.sin(a) + dy * Math.cos(a)) };
+  state.raw = pat;
+  rebuild();
+}
+const select = (i) => { if (!state.edit) return; state.edit.sel = i; renderObjects(); draw(); };
+$('objList').onclick = (e) => { const li = e.target.closest('li'); if (li) select(Number(li.dataset.i)); };
+const moveObj = (d) => applyEdit((ed) => {
+  const j = ed.sel + d;
+  if (j < 0 || j >= ed.objects.length) return;
+  [ed.objects[ed.sel], ed.objects[j]] = [ed.objects[j], ed.objects[ed.sel]]; ed.sel = j;
+});
+$('objUp').onclick = () => moveObj(-1);
+$('objDown').onclick = () => moveObj(1);
+$('objDel').onclick = () => applyEdit((ed) => { ed.objects.splice(ed.sel, 1); ed.sel = Math.min(ed.sel, ed.objects.length - 1); });
+$('remake').onclick = () => { if (state.image) $('imgDlg').showModal(); };
+const setProp = (key, value) => applyEdit((ed) => { ed.objects[ed.sel][key] = value; });
+const num = (id, lo, hi) => Math.max(lo, Math.min(hi, Number($(id).value) || lo));
+$('oType').onchange = () => setProp('type', $('oType').value);
+$('oAngle').onchange = () => setProp('angle', num('oAngle', -180, 180));
+$('oSpacing').onchange = () => setProp('spacing', Math.round(num('oSpacing', 0.25, 1.5) * 10 * 10) / 10);
+$('oStitch').onchange = () => setProp('stitch', Math.round(num('oStitch', 1, 7) * 10));
+$('oPull').onchange = () => setProp('pull', Math.round(num('oPull', 0, 1) * 10));
+$('oUnder').onchange = () => setProp('underlay', $('oUnder').checked);
+$('oOutline').onchange = () => setProp('outline', $('oOutline').checked);
+$('oColor').onchange = () => applyEdit((ed) => {
+  const rgb = parseInt($('oColor').value.slice(1), 16), old = ed.objects[ed.sel].rgb;
+  for (const o of $('oAllColor').checked ? ed.objects.filter((o) => o.rgb === old) : [ed.objects[ed.sel]]) o.rgb = rgb;
+});
+$('oApplyAll').onclick = () => applyEdit((ed) => {
+  const { type, angle, spacing, stitch, pull, underlay, outline } = ed.objects[ed.sel];
+  ed.objects.forEach((o) => Object.assign(o, { type, angle, spacing, stitch, pull, underlay, outline }));
+});
+$('player').oninput = () => {
+  const n = Number($('player').value), max = Number($('player').max);
+  $('playerN').textContent = n < max ? `${n.toLocaleString()} / ${max.toLocaleString()}` : '';
+  draw();
+};
+// the object under a click: the nearest needle point that belongs to an object, within 2 mm
+function hitObject(clientX, clientY) {
+  const r = canvas.getBoundingClientRect(), { size, scale } = view();
+  const k = canvas.width / r.width;
+  const x = ((clientX - r.left) * k - size / 2) / scale - state.move.x, y = ((clientY - r.top) * k - size / 2) / scale - state.move.y;
+  let best = -1, bd = 20 * 20;
+  for (const b of state.pattern.blocks) for (const s of b.segments) for (const p of s.points) {
+    if (p.length < 3) continue;
+    const d = (p[0] - x) ** 2 + (p[1] - y) ** 2;
+    if (d < bd) { bd = d; best = p[2]; }
+  }
+  return best;
 }
 
 // design box relative to the hoop centre, 0.1 mm
@@ -185,12 +278,27 @@ function draw() {
   // thread look: each stitch is a shaded strand (dark edge, light centre), about 0.4 mm wide
   const tw = Math.max(1.2, scale * 4);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  let left = Number($('player').value); // stitch player: draw only the first stitches
+  const sel = state.edit ? state.edit.sel : -1, selPath = new Path2D();
   for (const b of state.pattern.blocks) {
+    if (left <= 0) break;
     const path = new Path2D();
-    for (const s of b.segments) s.points.forEach(([x, y], i) => { const [px, py] = toPx(x + mx, y + my); i ? path.lineTo(px, py) : path.moveTo(px, py); });
+    for (const s of b.segments) {
+      let prevSel = false;
+      s.points.forEach(([x, y, o], i) => {
+        if (left-- <= 0) return;
+        const [px, py] = toPx(x + mx, y + my);
+        i ? path.lineTo(px, py) : path.moveTo(px, py);
+        if (o === sel && sel >= 0) { prevSel ? selPath.lineTo(px, py) : selPath.moveTo(px, py); prevSel = true; } else prevSel = false;
+      });
+    }
     ctx.lineWidth = tw; ctx.strokeStyle = shade(b.thread.rgb, -0.25); ctx.stroke(path);
     ctx.lineWidth = tw * 0.6; ctx.strokeStyle = hex(b.thread.rgb); ctx.stroke(path);
     if (tw >= 2.5) { ctx.lineWidth = tw * 0.2; ctx.strokeStyle = shade(b.thread.rgb, 0.35); ctx.stroke(path); }
+  }
+  if (sel >= 0) { // selected object: a bright line over its stitches
+    ctx.lineWidth = Math.max(2, tw * 0.5); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.globalAlpha = 0.85;
+    ctx.stroke(selPath); ctx.globalAlpha = 1;
   }
   const box = placedBox(), [ax, ay] = toPx(box.x0, box.y0), [bx, by] = toPx(box.x1, box.y1);
   ctx.setLineDash([5, 4]); ctx.lineWidth = 1;
@@ -216,20 +324,28 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!state.pattern) return;
   canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
   remember();
-  drag = { x: e.clientX, y: e.clientY, mx: state.move.x, my: state.move.y };
+  drag = { x: e.clientX, y: e.clientY, mx: state.move.x, my: state.move.y, moved: false };
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+  drag.moved = true;
   const k = canvas.width / canvas.getBoundingClientRect().width / view().scale;
   setMove(drag.mx + (e.clientX - drag.x) * k, drag.my + (e.clientY - drag.y) * k);
 });
-canvas.addEventListener('pointerup', () => { drag = null; canvas.classList.remove('dragging'); });
+canvas.addEventListener('pointerup', (e) => {
+  if (drag && !drag.moved) { history.past.pop(); undoButtons(); if (state.edit) select(hitObject(e.clientX, e.clientY)); }
+  drag = null; canvas.classList.remove('dragging');
+});
 window.addEventListener('keydown', (e) => {
   if (e.target.closest('input,textarea,select,dialog')) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); $('undo').click(); return; }
   if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); $('redo').click(); return; }
   if (!state.pattern) return;
+  if (state.edit && (e.key === 'Delete' || e.key === 'Backspace') && objOf()) { e.preventDefault(); $('objDel').click(); return; }
+  if (state.edit && e.key === 'Tab') { e.preventDefault(); const n = state.edit.objects.length; select(((state.edit.sel + (e.shiftKey ? -1 : 1)) % n + n) % n); return; }
+  if (state.edit && e.key === 'Escape') { select(-1); return; }
   const step = e.shiftKey ? 1 : 10;
   const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
   if (d) { e.preventDefault(); if (!e.repeat) remember(); setMove(state.move.x + d[0], state.move.y + d[1]); }

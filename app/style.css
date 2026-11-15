@@ -58,3 +58,9 @@ textarea { resize: vertical; } input[list] { flex: 1; }
 .toolbar { flex-wrap: wrap; }
 .card .row + .row { margin-top: 8px; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.objlist { list-style: none; padding: 0; margin: 0 0 8px; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.objlist li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; font-size: 13px; }
+.objlist li.sel { background: var(--accent); color: var(--accent-text); }
+.player { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 6px; }
+.player input { flex: 1; }
+input[type=range] { accent-color: var(--accent); }

@@ -38,7 +38,8 @@
         <canvas id="view" width="640" height="640" aria-label="Design preview in hoop"></canvas>
         <p class="empty" id="empty">Open or drop a .pes, .dst, .jef, .exp or .pec file, or a picture (.png, .jpg) to turn into embroidery</p>
       </div>
-      <p class="hint">Drag the design to position it. Arrow keys nudge by 1 mm (Shift: 0.1 mm).</p>
+      <label class="player" title="Play the sewing order: show only the first stitches">Stitch player <input id="player" type="range" min="0" max="0" value="0" disabled> <span id="playerN"></span></label>
+      <p class="hint">Drag the design to position it. Arrow keys nudge by 1 mm (Shift: 0.1 mm). Click a shape of a converted picture or lettering to edit it.</p>
     </section>
 
     <aside>
@@ -46,6 +47,29 @@
         <h2>Design</h2>
         <dl id="designInfo"><dt>File</dt><dd>—</dd></dl>
         <ol id="colors" class="colors"></ol>
+      </div>
+
+      <div class="card" id="objCard" hidden>
+        <h2>Objects <span class="muted">(sewing order)</span></h2>
+        <ol id="objList" class="objlist"></ol>
+        <div class="row wrap">
+          <button id="objUp" title="Sew earlier (Tab selects the next object)">↑ Earlier</button>
+          <button id="objDown" title="Sew later">↓ Later</button>
+          <button id="objDel" title="Delete the object (Delete key)">Delete</button>
+          <button id="remake" title="Change colours or background removal and convert the picture again">Convert again…</button>
+        </div>
+        <div class="settings" id="objProps">
+          <label>Stitch type <select id="oType"><option value="auto">Auto (satin if thin)</option><option value="satin">Satin</option><option value="fill">Fill (tatami)</option><option value="outline">Outline only</option></select></label>
+          <label>Fill angle <input id="oAngle" type="number" min="-180" max="180" step="5"> °</label>
+          <label>Row spacing <input id="oSpacing" type="number" min="0.25" max="1.5" step="0.05"> mm</label>
+          <label>Stitch length <input id="oStitch" type="number" min="1" max="7" step="0.5"> mm</label>
+          <label>Pull compensation <input id="oPull" type="number" min="0" max="1" step="0.1"> mm</label>
+          <label><input type="checkbox" id="oUnder"> Underlay</label>
+          <label><input type="checkbox" id="oOutline"> Outline edge (fills)</label>
+          <label>Thread colour <input id="oColor" type="color"> <span id="oColorName" class="muted"></span></label>
+          <label><input type="checkbox" id="oAllColor" checked> Colour change applies to every object of this colour</label>
+          <button id="oApplyAll" title="Copy type, angle, spacing, length, pull, underlay and outline to every object">Use these settings for all</button>
+        </div>
       </div>
 
       <div class="card">
@@ -104,6 +128,7 @@
       <label>Thread colours <input id="imgColors" type="number" min="1" max="12" value="4"></label>
       <label>Fill density <select id="imgDensity"><option value="3">Dense</option><option value="4" selected>Normal</option><option value="5">Light</option></select></label>
       <label><input type="checkbox" id="imgBg" checked> Leave the background unstitched</label>
+      <label title="Raise it if bits of background (shadows, off-white) get stitched; lower it if parts of the picture vanish">Background tolerance <input id="imgBgTol" type="range" min="4" max="45" value="18"></label>
       <label>Fill direction <select id="imgAngle"><option value="45" selected>Diagonal ⟋</option><option value="135">Diagonal ⟍</option><option value="0">Horizontal</option><option value="90">Vertical</option></select></label>
       <label title="Lines and thin shapes sewn as smooth satin columns"><input type="checkbox" id="imgSatin" checked> Satin for thin parts</label>
       <label title="Sparse stitches sewn first so the fill lies flat"><input type="checkbox" id="imgUnder" checked> Underlay</label>

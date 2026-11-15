@@ -100,31 +100,27 @@ function distanceToEdge(label, w, h) {
 
 function threadFor(rgb) {
   let best = null, bd = Infinity;
-  const l = lab(rgb);
+  const l = lab([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]);
   for (const e of PEC_PALETTE) {
     if (!e) continue;
     const d = dist2(l, lab([(e[0] >> 16) & 255, (e[0] >> 8) & 255, e[0] & 255]));
     if (d < bd) { bd = d; best = e; }
   }
-  return { rgb: (rgb[0] << 16) | (rgb[1] << 8) | rgb[2], name: best ? best[1] : '' };
+  return { rgb, name: best ? best[1] : '' };
 }
+export const threadName = (rgb) => threadFor(rgb).name;
+
+const SATIN_MAX = 70; // longer satin stitches snag; longer rows fall back to tatami
 
 /**
+ * Picture -> areas (one per connected patch of one thread colour).
  * @param img {width, height, data: RGBA bytes}, 1 px = PX units
- * @param opts colors: thread count; removeBg: drop the colour that covers most of the border;
- *   spacing: row spacing (0.1 mm); stitch: tatami stitch length (0.1 mm); minArea: smallest area kept (px);
- *   underlay: stitches sewn first to hold the fabric; outline: running stitch around fill areas;
- *   angle: fill direction in degrees; satin: thin parts as satin columns;
- *   satinWidth: widest part sewn as satin (0.1 mm); pull: pull compensation per row end (0.1 mm)
+ * @param opts colors: thread count; removeBg: leave the background unstitched;
+ *   bgTolerance: how different (CIE Lab distance) a pixel may be from the border colours and still count as background;
+ *   minArea: smallest area kept (px); satin: thin parts as satin columns; satinWidth: widest part sewn as satin (0.1 mm)
  */
-export function imageToStitches(img, {
-  colors = 4, removeBg = true, spacing = 4, stitch = 30, minArea = 25, underlay = true, outline = true,
-  angle = 45, satin = true, satinWidth = 50, pull = 2,
-} = {}) {
+export function analyze(img, { colors = 4, removeBg = true, bgTolerance = 18, minArea = 25, satin = true, satinWidth = 50 } = {}) {
   const { width: w, height: h, data } = img;
-  const SATIN_MAX = 70; // longer satin stitches snag; longer rows fall back to tatami
-
-  // --- colours ---
   const labCache = new Map();
   const labAt = (i) => {
     const key = (data[i * 4] << 16) | (data[i * 4 + 1] << 8) | data[i * 4 + 2];
@@ -132,27 +128,38 @@ export function imageToStitches(img, {
     if (!v) { v = lab([data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]); labCache.set(key, v); }
     return v;
   };
-  const opaque = [];
-  for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] >= 128) opaque.push(labAt(i));
-  if (!opaque.length) throw new Error('The image is empty');
-  const hasAlpha = opaque.length < w * h * 0.98;
-  const centres = kmeans(opaque, colors + (removeBg && !hasAlpha ? 1 : 0));
-
   const label = new Int32Array(w * h).fill(-1);
-  for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] >= 128) label[i] = nearest(centres, labAt(i));
+  let opaqueCount = 0;
+  for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] >= 128) { label[i] = 0; opaqueCount++; }
+  if (!opaqueCount) throw new Error('The image is empty');
+  const hasAlpha = opaqueCount < w * h * 0.98;
+
+  // background: every pixel close to one of the border's main colours (also the holes in letters and rings).
+  // A tolerance handles off-white, JPEG noise, soft shadows and gradients.
+  let refs = [];
+  if (removeBg && !hasAlpha) {
+    const border = [];
+    for (let x = 0; x < w; x++) border.push(x, (h - 1) * w + x);
+    for (let y = 0; y < h; y++) border.push(y * w, y * w + w - 1);
+    const t2 = bgTolerance ** 2, bl = border.map(labAt);
+    refs = kmeans(bl, 3).filter((c) => bl.filter((p) => dist2(c, p) <= t2).length >= bl.length * 0.1);
+    for (let i = 0; i < w * h; i++) if (label[i] === 0 && refs.some((c) => dist2(c, labAt(i)) <= t2)) label[i] = -1;
+  }
+  const fg = [];
+  for (let i = 0; i < w * h; i++) if (label[i] === 0) fg.push(labAt(i));
+  if (!fg.length) throw new Error('Everything looks like background: lower the background tolerance');
+  const centres = kmeans(fg, colors);
+  for (let i = 0; i < w * h; i++) {
+    if (label[i] !== 0) continue;
+    const p = labAt(i), l = nearest(centres, p);
+    // anti-aliased edge pixels nearer the background than any thread are background
+    label[i] = refs.some((c) => dist2(c, p) < dist2(centres[l], p)) ? -1 : l;
+  }
 
   // thread colour = average picture colour of the pixels it covers
   const rgbSum = centres.map(() => [0, 0, 0, 0]);
   for (let i = 0; i < w * h; i++) if (label[i] >= 0) { const s = rgbSum[label[i]]; s[0] += data[i * 4]; s[1] += data[i * 4 + 1]; s[2] += data[i * 4 + 2]; s[3]++; }
-  const rgbOf = (l) => rgbSum[l].slice(0, 3).map((v) => Math.round(v / Math.max(1, rgbSum[l][3])));
-
-  if (removeBg && !hasAlpha) {
-    const votes = new Array(centres.length).fill(0);
-    for (let x = 0; x < w; x++) { votes[label[x]]++; votes[label[(h - 1) * w + x]]++; }
-    for (let y = 0; y < h; y++) { votes[label[y * w]]++; votes[label[y * w + w - 1]]++; }
-    const bg = votes.indexOf(Math.max(...votes));
-    for (let i = 0; i < w * h; i++) if (label[i] === bg) label[i] = -1;
-  }
+  const rgbOf = (l) => { const [r, g, b] = rgbSum[l].slice(0, 3).map((v) => Math.round(v / Math.max(1, rgbSum[l][3]))); return (r << 16) | (g << 8) | b; };
 
   // one majority-vote pass removes the 1 px colour fringes left by anti-aliased edges
   const voted = label.slice();
@@ -180,6 +187,53 @@ export function imageToStitches(img, {
   const { comp, list } = components(label, w, h);
   const edge = distanceToEdge(label, w, h);
   const cx = (w * PX) / 2, cy = (h * PX) / 2;
+  const areas = list.map((c, id) => {
+    const box = { x0: w, y0: h, x1: 0, y1: 0 };
+    let maxEdge = 0, sx = 0, sy = 0;
+    for (const j of c.px) {
+      const x = j % w, y = (j / w) | 0;
+      if (x < box.x0) box.x0 = x; if (x > box.x1) box.x1 = x; if (y < box.y0) box.y0 = y; if (y > box.y1) box.y1 = y;
+      if (edge[j] > maxEdge) maxEdge = edge[j];
+      sx += x; sy += y;
+    }
+    const widthUnits = ((2 * maxEdge) / 3) * PX;
+    return { id, rgb: rgbOf(c.label), box, area: c.px.length, thin: satin && widthUnits <= satinWidth, widthUnits, centre: [(sx / c.px.length) * PX - cx, (sy / c.px.length) * PX - cy] };
+  });
+  return { w, h, comp, edge, areas };
+}
+
+/**
+ * Default sewing plan: one object per area, largest colour first (details sewn on top), nearest area next.
+ * An object is { area, rgb, type: 'auto'|'satin'|'fill'|'outline', angle, spacing, stitch, pull, underlay, outline } (0.1 mm units).
+ */
+export function defaultObjects(model, { spacing = 4, stitch = 30, underlay = true, outline = true, angle = 45, pull = 2 } = {}) {
+  const byColour = new Map();
+  for (const a of model.areas) byColour.set(a.rgb, (byColour.get(a.rgb) || 0) + a.area);
+  const objects = [];
+  let at = null;
+  for (const [rgb] of [...byColour].sort((p, q) => q[1] - p[1])) {
+    const todo = model.areas.filter((a) => a.rgb === rgb);
+    while (todo.length) {
+      let k = 0;
+      if (at) todo.forEach((a, i) => { if (Math.hypot(a.centre[0] - at[0], a.centre[1] - at[1]) < Math.hypot(todo[k].centre[0] - at[0], todo[k].centre[1] - at[1])) k = i; });
+      const a = todo.splice(k, 1)[0];
+      at = a.centre;
+      objects.push({ area: a.id, rgb, type: 'auto', angle, spacing, stitch, pull, underlay, outline });
+    }
+  }
+  return objects;
+}
+
+export function imageToStitches(img, opts = {}) {
+  const model = analyze(img, opts);
+  return stitchObjects(model, defaultObjects(model, opts));
+}
+
+/** Objects -> { threads, cmds }. Each stitch command carries o: the index of the object it belongs to. */
+export function stitchObjects(model, objects) {
+  const { w, h, comp, edge, areas } = model;
+  const cx = (w * PX) / 2, cy = (h * PX) / 2;
+  let gap = 2, pullPx = 1, stitch = 30, underlay = true; // set per object below
 
   // --- stitch output ---
   const threads = [], cmds = [];
@@ -454,49 +508,35 @@ export function imageToStitches(img, {
     return true;
   };
 
-  // --- areas, colour by colour (largest colour first, details sewn on top) ---
-  const areas = list.map((c, id) => {
-    const box = { x0: w, y0: h, x1: 0, y1: 0 };
-    let maxEdge = 0, sx = 0, sy = 0;
-    for (const j of c.px) {
-      const x = j % w, y = (j / w) | 0;
-      if (x < box.x0) box.x0 = x; if (x > box.x1) box.x1 = x; if (y < box.y0) box.y0 = y; if (y > box.y1) box.y1 = y;
-      if (edge[j] > maxEdge) maxEdge = edge[j];
-      sx += x; sy += y;
+  // --- objects in order; a new thread whenever the colour changes ---
+  let lastRgb = null;
+  objects.forEach((o, idx) => {
+    const a = areas[o.area];
+    if (!a) return;
+    if (o.rgb !== lastRgb) {
+      if (lastRgb !== null && pos) cmds.push({ t: 'color', x: pos[0], y: pos[1] });
+      threads.push(threadFor(o.rgb));
+      lastRgb = o.rgb;
     }
-    const widthUnits = ((2 * maxEdge) / 3) * PX;
-    return { id, label: c.label, box, area: c.px.length, thin: satin && widthUnits <= satinWidth, widthUnits, centre: [(sx / c.px.length) * PX - cx, (sy / c.px.length) * PX - cy] };
-  });
-  const used = [...new Set(areas.map((a) => a.label))]
-    .map((l) => ({ l, area: areas.filter((a) => a.label === l).reduce((s, a) => s + a.area, 0) }))
-    .sort((a, b) => b.area - a.area);
-
-  const gap = spacing / PX, pullPx = pull / PX;
-  used.forEach(({ l }, ti) => {
-    if (ti > 0) cmds.push({ t: 'color', x: pos[0], y: pos[1] });
-    threads.push(threadFor(rgbOf(l)));
-    const todo = areas.filter((a) => a.label === l);
-    while (todo.length) {
-      // nearest area next: less travel, fewer cuts
-      let k = 0;
-      if (pos) todo.forEach((a, i) => { if (Math.hypot(...sub(a.centre, pos)) < Math.hypot(...sub(todo[k].centre, pos))) k = i; });
-      const a = todo.splice(k, 1)[0];
-      area = a.id;
-      const sat = a.thin && !skeletonSatin(a) ? bestSatinAngle(a.id, a.box) : null; // strokes follow their centreline
+    gap = o.spacing / PX; pullPx = o.pull / PX; stitch = o.stitch; underlay = o.underlay;
+    area = a.id;
+    const start = cmds.length;
+    const thin = o.type === 'satin' || (o.type === 'auto' && a.thin);
+    if (o.type === 'outline') sewOutline(outlineOf(a.id, a.box));
+    else if (thin) {
+      const sat = skeletonSatin(a) ? null : bestSatinAngle(a.id, a.box); // strokes follow their centreline
       if (sat && sat.long <= 0.1) {
         // a blob too short for a centreline: one satin direction across it
-        const deg = sat.deg;
-        if (underlay && a.widthUnits >= 15) fill(scan(a.id, a.box, deg, 10, 1.5, 0), stitch, SATIN_MAX); // zigzag underlay
-        fill(scan(a.id, a.box, deg, gap, 0, pullPx * 1.5), stitch, SATIN_MAX);
-      } else if (sat) {
-        satinTiles(a); // 4 mm tiles, each with the satin direction that crosses the stroke there
-      } else if (!a.thin) {
-        if (underlay && a.area >= 100) fill(scan(a.id, a.box, angle + 90, 20 / PX, 2, 0), 40, 0);
-        fill(scan(a.id, a.box, angle, gap, 0, pullPx), stitch, 0);
-        if (outline) sewOutline(outlineOf(a.id, a.box));
-      }
+        if (underlay && a.widthUnits >= 15) fill(scan(a.id, a.box, sat.deg, 10, 1.5, 0), stitch, SATIN_MAX); // zigzag underlay
+        fill(scan(a.id, a.box, sat.deg, gap, 0, pullPx * 1.5), stitch, SATIN_MAX);
+      } else if (sat) satinTiles(a); // 4 mm tiles, each with the satin direction that crosses the stroke there
+    } else {
+      if (underlay && a.area >= 100) fill(scan(a.id, a.box, o.angle + 90, 20 / PX, 2, 0), 40, 0);
+      fill(scan(a.id, a.box, o.angle, gap, 0, pullPx), stitch, 0);
+      if (o.outline) sewOutline(outlineOf(a.id, a.box));
     }
+    for (let k = start; k < cmds.length; k++) cmds[k].o = idx;
   });
-  if (!cmds.length) throw new Error('Nothing to stitch: try more colours or turn off background removal');
+  if (!cmds.length) throw new Error('Nothing to stitch: try more colours or a lower background tolerance');
   return { threads, cmds };
 }

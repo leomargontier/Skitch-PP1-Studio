@@ -196,3 +196,15 @@ test('image generator: a thin ring is satin that crosses the stroke, stitches st
   assert.ok(radial > st.length * 0.3, `radial ${radial}/${st.length}`);
   assert.ok(cmds.filter((c) => c.t === 'jump').length <= 3);
 });
+
+test('background removal: a noisy grey-to-white gradient is left unstitched, holes too', () => {
+  const w = 120, h = 100, data = new Uint8Array(w * h * 4);
+  let seed = 1; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 12;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const g = 200 + (55 * x) / w + rnd(), r = Math.hypot(x - 60, y - 50);
+    data.set(r < 30 && r > 12 ? [30, 60, 170, 255] : [g, g, g - 4, 255], (y * w + x) * 4);
+  }
+  const { threads, cmds } = imageToStitches({ width: w, height: h, data }, { colors: 2 });
+  for (const c of cmds.filter((c) => c.t === 'stitch')) { const r = Math.hypot(c.x, c.y) / PX; assert.ok(r > 9 && r < 33, `stitch at r=${r} px`); }
+  assert.ok(threads.every((t) => (t.rgb & 255) > 120), 'only blue threads');
+});
