@@ -2,7 +2,7 @@ import { readEmbroidery } from './formats/readers.js';
 import { toPattern, transform, bounds, stitchCount, stack } from './pattern.js';
 import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
 import { PP1, STATUS, errorText, isNewer } from './pp1.js';
-import { writeDst } from './formats/dst-writer.js';
+import { WRITERS } from './formats/writers.js';
 import { writePes } from './formats/pes-writer.js';
 import { analyze, defaultObjects, stitchObjects, threadName, PX } from './image.js';
 import { patternToImportShapes, fileObjectsToRaw, patternToRaw } from './import.js';
@@ -396,7 +396,25 @@ const save = async (ext, write) => {
   if (saved) log(`Saved ${saved}`);
 };
 $('savePes').onclick = () => save('pes', writePes);
-$('saveDst').onclick = () => save('dst', writeDst);
+// export dialog: stats, file name and any format in the writer registry
+$('expFormat').innerHTML = Object.entries(WRITERS).map(([ext, w]) => `<option value="${ext}">.${ext} – ${w.name}</option>`).join('');
+$('saveDst').onclick = () => {
+  const p = state.pattern, bb = state.bb;
+  const jumps = p.blocks.reduce((n, b) => n + b.segments.length - 1, 0), trims = p.blocks.reduce((n, b) => n + b.segments.filter((s) => s.trim).length, 0);
+  $('expStats').innerHTML = `<dt>Stitches</dt><dd>${stitchCount(p).toLocaleString()}</dd><dt>Shapes</dt><dd>${state.edit ? state.edit.objects.filter((o) => !o.hidden).length : '—'}</dd>
+    <dt>Colour changes</dt><dd>${p.blocks.length - 1}</dd><dt>Jumps · trims</dt><dd>${jumps} · ${trims}</dd><dt>Size</dt><dd>${mm(bb.w)} × ${mm(bb.h)} mm</dd><dt>Sewing time</dt><dd>about ${sewMinutes(p)} min</dd>`;
+  $('expName').value = state.file.replace(/\.[^.]*$/, '').replace(/[\\/:*?"<>|]/g, '_');
+  $('expDlg').showModal();
+};
+$('expCancel').onclick = () => $('expDlg').close();
+$('expGo').onclick = async () => {
+  const ext = $('expFormat').value, base = $('expName').value.trim().replace(/[\\/:*?"<>|]/g, '_') || 'design';
+  $('expDlg').close();
+  try {
+    const saved = await window.native.saveFile(`${base}.${ext}`, WRITERS[ext].write(state.pattern, base));
+    if (saved) log(`Saved ${saved}`);
+  } catch (e) { log(`Export failed: ${e.message}`); alert(e.message); }
+};
 $('flip').onclick = () => { remember(); state.flip = !state.flip; rebuild(); };
 $('center').onclick = () => { remember(); setMove(0, 0); };
 $('hoop').onchange = () => { if (state.pattern) { renderInfo(); updateButtons(); } draw(); };

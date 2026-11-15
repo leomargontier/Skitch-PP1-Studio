@@ -261,3 +261,26 @@ test('import round trip: read -> shapes -> write PES/DST -> read keeps stitch an
     assert.equal(count(toPattern(fileObjectsToRaw(patternToImportShapes(patternToRaw(orig))))), count(orig), `${name} via pattern`);
   }
 });
+
+test('extra readers (U01, XXX, TBF, G-code, HUS) agree with pyembroidery', () => {
+  const ref = JSON.parse(fs.readFileSync(new URL('./fixtures/embroidery/more-reference.json', import.meta.url)));
+  for (const [ext, r] of Object.entries(ref)) {
+    const st = readEmbroidery(`big.${ext}`, fixture(`embroidery/big.${ext}`)).cmds.filter((c) => c.t === 'stitch').map((c) => [Math.round(c.x), Math.round(c.y)]);
+    assert.equal(st.length, r.stitches, ext);
+    assert.deepEqual(st.slice(0, 3), r.first, ext);
+    assert.deepEqual(st.at(-1), r.last, ext);
+  }
+});
+
+import { WRITERS } from '../src/formats/writers.js';
+test('every writer round-trips through our readers: same colours, stitches and size', () => {
+  const pat = toPattern(readEmbroidery('big.pes', fixture('embroidery/big.pes')));
+  const size = (p) => { const b = bounds(p); return [b.w, b.h]; };
+  const sewn = (p) => p.blocks.reduce((n, b) => n + b.segments.reduce((m, s) => m + s.points.length, 0), 0);
+  for (const [ext, w] of Object.entries(WRITERS)) {
+    const back = toPattern(readEmbroidery(`x.${ext}`, w.write(pat, 'x')));
+    assert.equal(back.blocks.length, pat.blocks.length, `${ext} colours`);
+    assert.equal(sewn(back), sewn(pat), `${ext} stitches`);
+    assert.deepEqual(size(back), size(pat), `${ext} size`);
+  }
+});

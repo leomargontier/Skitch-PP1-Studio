@@ -28,7 +28,7 @@
         <label class="num" title="Rotate by any angle">Angle <input id="angle" type="number" min="-360" max="360" step="1" value="0" disabled>°</label>
         <label class="num" title="Resize. Stitches are spread or packed, so stay near 100 %">Size <input id="scale" type="number" min="80" max="120" step="1" value="100" disabled>%</label>
         <button id="savePes" title="Save as a Brother .pes file" disabled>Save .pes</button>
-        <button id="saveDst" title="Save as a Tajima .dst file" disabled>Save .dst</button>
+        <button id="saveDst" title="Save in another format (DST, JEF, EXP, VP3, …)" disabled>Export…</button>
         <span class="sep"></span>
         <label class="hoop">Hoop
           <select id="hoop"><option value="100">100 × 100 mm</option><option value="70">70 × 70 mm</option></select>
@@ -36,7 +36,7 @@
       </div>
       <div class="canvas-wrap">
         <canvas id="view" width="640" height="640" aria-label="Design preview in hoop"></canvas>
-        <p class="empty" id="empty">Open or drop a .pes, .dst, .jef, .exp, .vp3 or .pec file, or a picture (.png, .jpg) to turn into embroidery</p>
+        <p class="empty" id="empty">Open or drop an embroidery file (.pes, .dst, .jef, .exp, .vp3, .hus, .xxx and 30 more), or a picture (.png, .jpg) to turn into embroidery</p>
       </div>
       <label class="player" title="Play the sewing order: show only the first stitches">Stitch player <input id="player" type="range" min="0" max="0" value="0" disabled> <span id="playerN"></span></label>
       <p class="hint">Drag the design to position it. Arrow keys nudge by 1 mm (Shift: 0.1 mm). Click a shape to edit it.</p>
@@ -144,6 +144,16 @@
       <label title="A running stitch around each area for crisp edges"><input type="checkbox" id="imgOutline" checked> Outline edges</label>
     </div>
     <div class="row end"><button id="imgCancel">Cancel</button><button id="imgGo" class="primary">Make stitches</button></div>
+  </dialog>
+
+  <dialog id="expDlg">
+    <h2>Export</h2>
+    <dl id="expStats"></dl>
+    <div class="settings">
+      <label>File name <input id="expName"></label>
+      <label>Format <select id="expFormat"></select></label>
+    </div>
+    <div class="row end"><button id="expCancel">Cancel</button><button id="expGo" class="primary">Save…</button></div>
   </dialog>
 
   <dialog id="txtDlg">

@@ -38,12 +38,15 @@ ipcMain.on('bt-select', (_e, id) => { pickBluetooth?.(id || ''); pickBluetooth =
 
 // Linux file dialogs match extensions case-sensitively: offer both spellings
 const both = (exts) => exts.flatMap((e) => [e, e.toUpperCase()]);
+// every format src/formats/readers.js can open
+const EMB = ['pes', 'pec', 'dst', 'jef', 'exp', 'vp3', 'u01', 'xxx', 'tbf', 'hus', 'shv', 'sew', 'ksm', 'dsz', 'dsb', 'fxy', 'gt', 'exy', 'tap', '10o', '100',
+  'inb', 'new', 'zxy', 'stc', 'emd', 'jpx', 'bro', 'mit', 'max', 'zhs', 'pcd', 'pcq', 'pcs', 'pcm', 'phb', 'phc', 'stx', 'gcode'];
 ipcMain.handle('open-file', async () => {
   const r = await dialog.showOpenDialog(win, {
     properties: ['openFile'],
     filters: [
-      { name: 'Embroidery or image', extensions: both(['pes', 'pec', 'dst', 'jef', 'exp', 'vp3', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']) },
-      { name: 'Embroidery', extensions: both(['pes', 'pec', 'dst', 'jef', 'exp', 'vp3']) },
+      { name: 'Embroidery or image', extensions: both([...EMB, 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']) },
+      { name: 'Embroidery', extensions: both(EMB) },
       { name: 'Image', extensions: both(['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']) },
     ],
   });
@@ -53,8 +56,9 @@ ipcMain.handle('open-file', async () => {
 });
 
 ipcMain.handle('save-file', async (_e, name, bytes) => {
-  const pes = name.toLowerCase().endsWith('.pes');
-  const r = await dialog.showSaveDialog(win, { defaultPath: name, filters: [pes ? { name: 'Brother PES', extensions: ['pes'] } : { name: 'Tajima DST', extensions: ['dst'] }] });
+  const ext = path.extname(String(name)).slice(1).toLowerCase();
+  if (!/^[a-z0-9]{1,6}$/.test(ext)) return null;
+  const r = await dialog.showSaveDialog(win, { defaultPath: name, filters: [{ name: `.${ext} embroidery file`, extensions: [ext] }] });
   if (r.canceled || !r.filePath) return null;
   fs.writeFileSync(r.filePath, Buffer.from(bytes));
   return path.basename(r.filePath);

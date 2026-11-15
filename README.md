@@ -6,7 +6,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 
 ## Features
 
-- Opens `.pes`, `.pec`, `.dst`, `.jef`, `.exp` and `.vp3` designs (drag and drop works too). The readers are checked against pyembroidery.
+- Opens 39 embroidery formats (drag and drop works too): `.pes`, `.pec`, `.dst`, `.jef`, `.exp`, `.vp3`, `.hus`, `.xxx`, `.u01`, `.tbf`, `.shv`, `.sew`, `.ksm`, `.dsz`, `.dsb`, `.fxy`, `.gt`, `.exy`, `.tap`, `.10o`, `.100`, `.inb`, `.new`, `.zxy`, `.stc`, `.emd`, `.jpx`, `.bro`, `.mit`, `.max`, `.zhs`, `.pcd`, `.pcq`, `.pcs`, `.pcm`, `.phb`, `.phc`, `.stx` and `.gcode`. The readers are ported from pyembroidery and checked against it.
 - Splits an opened design into shapes (one per run of stitches between jumps, trims and colour changes). Each shape can be recoloured, hidden, moved earlier or later, deleted, or given tie-on, tie-off and trim-after; its stitches keep their exact positions. Lock stitches already in the file are recognised and become the tie switches. "Group by colour" sews each colour in one go.
 - Shows a preview in a 100 × 100 mm or 70 × 70 mm hoop. You can move, rotate 90° and mirror the design.
 - Connects to the machine over Bluetooth LE and shows its model, serial number and firmware.
@@ -29,7 +29,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
   - move it earlier or later in the sewing order, or delete it (Delete key). Tab steps through the shapes;
   - convert the picture again with other colours or background settings.
 - A stitch player shows the sewing order stitch by stitch.
-- Saves any design as a Brother `.pes` file (version 1, with thumbnails) or a `.dst` file.
+- Saves as Brother `.pes` (version 1, with thumbnails) in one click, or exports to `.dst`, `.pec`, `.jef`, `.exp`, `.vp3`, `.u01`, `.xxx`, `.tbf` or `.gcode` with a summary of stitches, shapes, colour changes, size and sewing time.
 - Updates the machine firmware from Brother's public download server, after checking the file's checksum, model and version.
 - Makes lettering from any installed font, and adds text, pictures or other designs under the current one.
 

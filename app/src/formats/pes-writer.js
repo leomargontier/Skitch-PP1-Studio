@@ -57,8 +57,8 @@ function icon(points, box, buffer) {
   return g;
 }
 
-export function writePes(pattern, name = 'design') {
-  // centre the design on (0,0), as Brother files are
+// centre the design on (0,0), as Brother files are
+function centred(pattern) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const b of pattern.blocks) for (const s of b.segments) for (const [x, y] of s.points) {
     x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
@@ -66,8 +66,18 @@ export function writePes(pattern, name = 'design') {
   const ox = Math.round((x0 + x1) / 2), oy = Math.round((y0 + y1) / 2);
   const blocks = pattern.blocks.map((b) => ({ rgb: b.thread?.rgb ?? 0, segments: b.segments.map((s) => ({ trim: s.trim, points: s.points.map(([x, y]) => [x - ox, y - oy]) })) }));
   const box = { x0: x0 - ox, y0: y0 - oy, x1: x1 - ox, y1: y1 - oy };
-  const width = box.x1 - box.x0, height = box.y1 - box.y0;
+  return { blocks, box, width: box.x1 - box.x0, height: box.y1 - box.y0 };
+}
 
+export function writePec(pattern, name = 'design') {
+  const o = new Out();
+  o.str('#PEC0001');
+  pecBlock(o, centred(pattern), name);
+  return Uint8Array.from(o.b);
+}
+
+export function writePes(pattern, name = 'design') {
+  const c = centred(pattern), { blocks, box, width, height } = c;
   const o = new Out();
   o.str('#PES0001');
   const pecAt = o.pos; o.u32(0);
@@ -107,8 +117,13 @@ export function writePes(pattern, name = 'design') {
   o.set16(sectionsAt, sections);
   o.u16(0); o.u16(0);
 
-  // PEC block
   o.set32(pecAt, o.pos);
+  pecBlock(o, c, name);
+  return Uint8Array.from(o.b);
+}
+
+// PEC block: label, thread indexes, stitches, thumbnails
+function pecBlock(o, { blocks, box, width, height }, name) {
   o.str(`LA:${name.slice(0, 8).padEnd(16, ' ')}\r`);
   o.bytes([...Array(12).fill(0x20), 0xff, 0x00, 6, 38]);
   const idx = uniquePalette(blocks.map((b) => b.rgb));
@@ -159,5 +174,4 @@ export function writePes(pattern, name = 'design') {
   const all = blocks.flatMap((b) => b.segments.flatMap((s) => s.points));
   o.bytes(icon(all, box, 4));
   for (const b of blocks) o.bytes(icon(b.segments.flatMap((s) => s.points), box, 5));
-  return Uint8Array.from(o.b);
 }
