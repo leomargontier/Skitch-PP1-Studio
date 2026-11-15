@@ -6,7 +6,8 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
 
 ## Features
 
-- Opens `.pes`, `.pec`, `.dst`, `.jef` and `.exp` designs (drag and drop works too).
+- Opens `.pes`, `.pec`, `.dst`, `.jef`, `.exp` and `.vp3` designs (drag and drop works too). The readers are checked against pyembroidery.
+- Splits an opened design into shapes (one per run of stitches between jumps, trims and colour changes). Each shape can be recoloured, hidden, moved earlier or later, deleted, or given tie-on, tie-off and trim-after; its stitches keep their exact positions. Lock stitches already in the file are recognised and become the tie switches. "Group by colour" sews each colour in one go.
 - Shows a preview in a 100 × 100 mm or 70 × 70 mm hoop. You can move, rotate 90° and mirror the design.
 - Connects to the machine over Bluetooth LE and shows its model, serial number and firmware.
 - Sends the design in the same stitch format and transfer sequence as Artspira.
@@ -23,7 +24,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
   - Wide parts become tatami fill at the angle you choose, over an underlay, with an outline along each edge.
   - It adds pull compensation, travels only inside the shape (never over bare fabric) and drops stitches too short to sew.
   - It removes the background even when it is off-white, shaded or noisy (JPEG), including the holes inside letters and rings. A tolerance slider sets how much counts as background.
-- Edits converted pictures and lettering shape by shape. Click a shape on the design or in the Objects list, then:
+- Edits converted pictures and lettering shape by shape, re-stitching each shape when its settings change. Click a shape on the design or in the Objects list, then:
   - change its stitch type (satin, tatami fill or outline only), fill angle, row spacing, stitch length, pull compensation, underlay, edge outline and thread colour;
   - move it earlier or later in the sewing order, or delete it (Delete key). Tab steps through the shapes;
   - convert the picture again with other colours or background settings.
@@ -75,7 +76,7 @@ The protocol and file format were recovered from Brother Artspira 2.9.10 for And
 - Artspira also supports Wi-Fi machines and Brother's cutting machines. Wi-Fi machines need Brother's cloud account, so they are not supported. The Snip cutting machine is not supported either: Artspira converts every cut file on a Brother cloud server, and that conversion has no offline equivalent.
 - Lettering uses the fonts installed on your computer. Letters smaller than about 5 mm come out rough.
 - The picture converter works best with logos and flat colours; photos come out posterised.
-- The app has no stitch-by-stitch editor, and combined designs move as one piece.
+- The app has no stitch-by-stitch editor or drawing tools. Combined designs move as one piece; after "Add design…" a converted picture's shapes become fixed-stitch shapes (colour, order, visibility, ties and trims stay editable).
 - The firmware updater copies Artspira's steps but has not been run on a real machine. Interrupting an update can leave the machine unusable.
 
 Hoopbridge is not affiliated with Brother Industries. "Brother", "SKITCH" and "Artspira" are trademarks of their owners.

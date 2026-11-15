@@ -36,13 +36,15 @@ function createWindow() {
 
 ipcMain.on('bt-select', (_e, id) => { pickBluetooth?.(id || ''); pickBluetooth = null; });
 
+// Linux file dialogs match extensions case-sensitively: offer both spellings
+const both = (exts) => exts.flatMap((e) => [e, e.toUpperCase()]);
 ipcMain.handle('open-file', async () => {
   const r = await dialog.showOpenDialog(win, {
     properties: ['openFile'],
     filters: [
-      { name: 'Embroidery or image', extensions: ['pes', 'pec', 'dst', 'jef', 'exp', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] },
-      { name: 'Embroidery', extensions: ['pes', 'pec', 'dst', 'jef', 'exp'] },
-      { name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] },
+      { name: 'Embroidery or image', extensions: both(['pes', 'pec', 'dst', 'jef', 'exp', 'vp3', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']) },
+      { name: 'Embroidery', extensions: both(['pes', 'pec', 'dst', 'jef', 'exp', 'vp3']) },
+      { name: 'Image', extensions: both(['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']) },
     ],
   });
   if (r.canceled || !r.filePaths[0]) return null;

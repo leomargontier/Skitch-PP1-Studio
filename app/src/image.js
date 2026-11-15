@@ -512,7 +512,7 @@ export function stitchObjects(model, objects) {
   let lastRgb = null;
   objects.forEach((o, idx) => {
     const a = areas[o.area];
-    if (!a) return;
+    if (!a || o.hidden) return;
     if (o.rgb !== lastRgb) {
       if (lastRgb !== null && pos) cmds.push({ t: 'color', x: pos[0], y: pos[1] });
       threads.push(threadFor(o.rgb));

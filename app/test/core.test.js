@@ -208,3 +208,56 @@ test('background removal: a noisy grey-to-white gradient is left unstitched, hol
   for (const c of cmds.filter((c) => c.t === 'stitch')) { const r = Math.hypot(c.x, c.y) / PX; assert.ok(r > 9 && r < 33, `stitch at r=${r} px`); }
   assert.ok(threads.every((t) => (t.rgb & 255) > 120), 'only blue threads');
 });
+
+// ---- machine files as editable shapes ----
+import { patternToImportShapes, fileObjectsToRaw, patternToRaw } from '../src/import.js';
+
+test('readers agree with pyembroidery on PES, PEC, VP3, JEF and EXP (stitches, colours, coordinates)', () => {
+  const ref = JSON.parse(fs.readFileSync(new URL('./fixtures/embroidery/reference.json', import.meta.url)));
+  for (const [ext, r] of Object.entries(ref)) {
+    const raw = readEmbroidery(`big.${ext}`, fixture(`embroidery/big.${ext}`));
+    const st = raw.cmds.filter((c) => c.t === 'stitch');
+    assert.equal(st.length, r.stitches, ext);
+    assert.equal(raw.cmds.filter((c) => c.t === 'color').length + 1, r.colors, ext);
+    assert.deepEqual(st.slice(0, 3).map((c) => [c.x, c.y]), r.first, ext);
+    if (r.threads.length) assert.deepEqual(raw.threads.map((t) => t.rgb), r.threads, ext);
+  }
+});
+
+test('import shapes: jumps split runs, trims set trimAfter, colour changes advance the thread, locks are stripped', () => {
+  const S = (x, y) => ({ t: 'stitch', x, y });
+  const raw = { threads: [{ rgb: 0xff0000, name: 'Red' }, { rgb: 0x0000ff, name: 'Blue' }], cmds: [
+    S(0, 0), S(8, 0), S(0, 0), S(8, 0), S(0, 0), S(30, 0), S(60, 0), S(90, 0), S(82, 0), S(90, 0), S(82, 0), S(90, 0), // locked both ends
+    { t: 'jump', x: 200, y: 0 }, S(200, 0), S(230, 0),
+    { t: 'trim', x: 230, y: 0 }, { t: 'jump', x: 0, y: 100 }, S(0, 100), S(30, 100),
+    { t: 'color', x: 30, y: 100 }, { t: 'jump', x: 0, y: 200 }, S(0, 200), S(40, 200), { t: 'trim', x: 40, y: 200 },
+  ] };
+  const shapes = patternToImportShapes(raw);
+  assert.equal(shapes.length, 4);
+  assert.deepEqual(shapes[0].stitches, [[0, 0], [30, 0], [60, 0], [90, 0]]);
+  assert.deepEqual([shapes[0].tieOn, shapes[0].tieOff, shapes[0].trimAfter], [true, true, false]);
+  assert.deepEqual([shapes[1].trimAfter, shapes[2].trimAfter, shapes[3].trimAfter], [true, false, true]);
+  assert.deepEqual(shapes.map((s) => s.rgb), [0xff0000, 0xff0000, 0xff0000, 0x0000ff]);
+  // and back: the locks come back where they were
+  const again = fileObjectsToRaw(shapes).cmds.filter((c) => c.t === 'stitch').map((c) => [c.x, c.y]);
+  assert.deepEqual(again.slice(0, 12), raw.cmds.slice(0, 12).map((c) => [c.x, c.y]));
+});
+
+test('import round trip: read -> shapes -> write PES/DST -> read keeps stitch and colour counts', () => {
+  for (const name of ['embroidery/big.pes', 'big.dst', 'embroidery/big.vp3']) {
+    const raw = readEmbroidery(name, fixture(name));
+    const pat = toPattern(fileObjectsToRaw(patternToImportShapes(raw)));
+    const orig = toPattern(raw);
+    const count = (p) => p.blocks.reduce((n, b) => n + b.segments.reduce((m, s) => m + s.points.length, 0), 0);
+    assert.equal(count(pat), count(orig), name);
+    for (const [ext, write] of [['pes', writePes], ['dst', writeDst]]) {
+      const back = toPattern(readEmbroidery(`x.${ext}`, write(pat, 'x')));
+      assert.equal(back.blocks.length, orig.blocks.length, `${name} -> ${ext} colours`);
+      // DST records max 12.1 mm, so it splits longer stitches (the VP3 sample has a 47 mm one)
+      if (ext === 'dst') assert.ok(count(back) >= count(orig), `${name} -> dst stitches`);
+      else assert.equal(count(back), count(orig), `${name} -> ${ext} stitches`);
+    }
+    // combined designs go through patternToRaw and split the same way
+    assert.equal(count(toPattern(fileObjectsToRaw(patternToImportShapes(patternToRaw(orig))))), count(orig), `${name} via pattern`);
+  }
+});

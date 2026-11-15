@@ -5,6 +5,7 @@ import { PP1, STATUS, errorText, isNewer } from './pp1.js';
 import { writeDst } from './formats/dst-writer.js';
 import { writePes } from './formats/pes-writer.js';
 import { analyze, defaultObjects, stitchObjects, threadName, PX } from './image.js';
+import { patternToImportShapes, fileObjectsToRaw, patternToRaw } from './import.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view'), ctx = canvas.getContext('2d');
@@ -36,8 +37,9 @@ const IMAGE = /\.(png|jpe?g|bmp|gif|webp)$/i;
 async function loadFile(name, bytes) {
   try {
     if (IMAGE.test(name)) return await loadImage(name, bytes);
-    setDesign(name, toPattern(readEmbroidery(name, bytes)));
-    log(`Opened ${name}`);
+    const objects = patternToImportShapes(readEmbroidery(name, bytes));
+    setDesign(name, toPattern(fileObjectsToRaw(objects)), { model: null, objects, sel: -1 });
+    log(`Opened ${name}: ${objects.length} shapes`);
   } catch (e) { state.adding = false; log(`Could not open ${name}: ${e.message}`); alert(e.message); }
 }
 
@@ -69,7 +71,10 @@ function setDesign(name, pat, edit = null) {
   const add = state.adding && state.pattern;
   state.adding = false;
   remember();
-  if (add) { pat = stack(state.pattern, pat); name = `${state.file} + ${name}`; edit = null; } // combined designs are fixed stitches
+  if (add) { // combined designs are split into machine-file shapes, so they stay editable
+    const objects = patternToImportShapes(patternToRaw(stack(state.pattern, pat)));
+    pat = toPattern(fileObjectsToRaw(objects)); name = `${state.file} + ${name}`; edit = { model: null, objects, sel: -1 };
+  }
   Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: add ? state.move : { x: 0, y: 0 }, edit });
   $('angle').value = 0; $('scale').value = 100;
   rebuild();
@@ -147,25 +152,33 @@ function rebuild() {
 // ---------- object editor (pictures and lettering made here) ----------
 const TYPE_NAME = { auto: 'Auto', satin: 'Satin', fill: 'Fill', outline: 'Outline' };
 const objOf = () => state.edit?.objects[state.edit.sel];
+// picture/lettering objects are re-digitized; machine-file shapes replay their stitches
+const restitch = (ed) => (ed.model ? stitchObjects(ed.model, ed.objects) : fileObjectsToRaw(ed.objects));
 function renderObjects() {
   const ed = state.edit;
   $('objCard').hidden = !ed;
   if (!ed) return;
-  const areas = ed.model.areas;
   $('objList').innerHTML = ed.objects.map((o, i) => {
-    const a = areas[o.area], t = o.type === 'auto' ? (a.thin ? 'Satin' : 'Fill') : TYPE_NAME[o.type];
-    const size = `${mm((a.box.x1 - a.box.x0 + 1) * PX)} × ${mm((a.box.y1 - a.box.y0 + 1) * PX)} mm`;
-    return `<li data-i="${i}" class="${i === ed.sel ? 'sel' : ''}"><span class="swatch" style="background:${hex(o.rgb)}"></span>${i + 1}. ${t} · ${size}</li>`;
+    let label;
+    if (o.kind === 'file') label = `${o.stitches.length.toLocaleString()} stitches${o.trimAfter ? ' · trim' : ''}`;
+    else {
+      const a = ed.model.areas[o.area], t = o.type === 'auto' ? (a.thin ? 'Satin' : 'Fill') : TYPE_NAME[o.type];
+      label = `${t} · ${mm((a.box.x1 - a.box.x0 + 1) * PX)} × ${mm((a.box.y1 - a.box.y0 + 1) * PX)} mm`;
+    }
+    return `<li data-i="${i}" class="${i === ed.sel ? 'sel' : ''} ${o.hidden ? 'hid' : ''}"><input type="checkbox" data-show title="Show / hide" ${o.hidden ? '' : 'checked'}><span class="swatch" style="background:${hex(o.rgb)}"></span>${i + 1}. ${label}</li>`;
   }).join('');
   $('objList').querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
   const o = objOf();
   $('objProps').querySelectorAll('input,select,button').forEach((el) => (el.disabled = !o));
   ['objUp', 'objDown', 'objDel'].forEach((id) => ($(id).disabled = !o));
-  $('remake').disabled = !state.image;
+  $('remake').hidden = !ed.model; $('remake').disabled = !state.image;
+  $('digiProps').hidden = !o || o.kind === 'file'; $('oApplyAll').hidden = !o || o.kind === 'file';
+  $('fileProps').hidden = !o || o.kind !== 'file';
   if (!o) { $('oColorName').textContent = 'Click an object in the list or on the design'; return; }
+  $('oColor').value = hex(o.rgb); $('oColorName').textContent = threadName(o.rgb);
+  if (o.kind === 'file') { $('oTieOn').checked = o.tieOn; $('oTieOff').checked = o.tieOff; $('oTrim').checked = o.trimAfter; return; }
   $('oType').value = o.type; $('oAngle').value = o.angle; $('oSpacing').value = o.spacing / 10; $('oStitch').value = o.stitch / 10;
   $('oPull').value = o.pull / 10; $('oUnder').checked = o.underlay; $('oOutline').checked = o.outline;
-  $('oColor').value = hex(o.rgb); $('oColorName').textContent = threadName(o.rgb);
 }
 // re-stitch after an edit; the untouched objects stay where they were on the fabric
 function applyEdit(change) {
@@ -173,7 +186,7 @@ function applyEdit(change) {
   change(state.edit);
   const before = bounds(state.raw);
   let pat;
-  try { pat = toPattern(stitchObjects(state.edit.model, state.edit.objects)); } catch (e) { restore(history.past, []); alert(e.message); return; }
+  try { pat = toPattern(restitch(state.edit)); } catch (e) { restore(history.past, []); alert(e.message); return; }
   if (!pat.blocks.length) { restore(history.past, []); alert('A design needs at least one object'); return; }
   const after = bounds(pat), k = state.scale / 100, a = (state.rotate * Math.PI) / 180;
   let dx = ((after.x0 + after.x1 - before.x0 - before.x1) / 2) * k, dy = ((after.y0 + after.y1 - before.y0 - before.y1) / 2) * k;
@@ -183,7 +196,23 @@ function applyEdit(change) {
   rebuild();
 }
 const select = (i) => { if (!state.edit) return; state.edit.sel = i; renderObjects(); draw(); };
-$('objList').onclick = (e) => { const li = e.target.closest('li'); if (li) select(Number(li.dataset.i)); };
+$('objList').onclick = (e) => {
+  const li = e.target.closest('li');
+  if (!li) return;
+  const i = Number(li.dataset.i);
+  if (e.target.matches('[data-show]')) applyEdit((ed) => { ed.objects[i].hidden = !e.target.checked; });
+  else select(i);
+};
+$('objGroup').onclick = () => applyEdit((ed) => { // stable: colours in order of first use, shapes keep their order within a colour
+  const first = new Map();
+  ed.objects.forEach((o, i) => { if (!first.has(o.rgb)) first.set(o.rgb, i); });
+  const cur = ed.objects[ed.sel];
+  ed.objects = ed.objects.map((o, i) => [o, i]).sort((a, b) => first.get(a[0].rgb) - first.get(b[0].rgb) || a[1] - b[1]).map(([o]) => o);
+  ed.sel = ed.objects.indexOf(cur);
+});
+$('oTieOn').onchange = () => setProp('tieOn', $('oTieOn').checked);
+$('oTieOff').onchange = () => setProp('tieOff', $('oTieOff').checked);
+$('oTrim').onchange = () => setProp('trimAfter', $('oTrim').checked);
 const moveObj = (d) => applyEdit((ed) => {
   const j = ed.sel + d;
   if (j < 0 || j >= ed.objects.length) return;
@@ -204,11 +233,11 @@ $('oUnder').onchange = () => setProp('underlay', $('oUnder').checked);
 $('oOutline').onchange = () => setProp('outline', $('oOutline').checked);
 $('oColor').onchange = () => applyEdit((ed) => {
   const rgb = parseInt($('oColor').value.slice(1), 16), old = ed.objects[ed.sel].rgb;
-  for (const o of $('oAllColor').checked ? ed.objects.filter((o) => o.rgb === old) : [ed.objects[ed.sel]]) o.rgb = rgb;
+  for (const o of $('oAllColor').checked ? ed.objects.filter((o) => o.rgb === old) : [ed.objects[ed.sel]]) { o.rgb = rgb; o.name = threadName(rgb); }
 });
 $('oApplyAll').onclick = () => applyEdit((ed) => {
   const { type, angle, spacing, stitch, pull, underlay, outline } = ed.objects[ed.sel];
-  ed.objects.forEach((o) => Object.assign(o, { type, angle, spacing, stitch, pull, underlay, outline }));
+  ed.objects.forEach((o) => { if (o.kind !== 'file') Object.assign(o, { type, angle, spacing, stitch, pull, underlay, outline }); });
 });
 $('player').oninput = () => {
   const n = Number($('player').value), max = Number($('player').max);

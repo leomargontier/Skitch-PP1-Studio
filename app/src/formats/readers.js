@@ -136,7 +136,45 @@ export function readExp(buf) {
   return { threads: Array.from({ length: colors }, (_, i) => thread(null, i)), cmds: b.cmds };
 }
 
-const READERS = { pes: readPes, pec: readPec, dst: readDst, jef: readJef, exp: readExp };
+// ---- VP3 (Pfaff / Husqvarna Viking), ported from pyembroidery's Vp3Reader (MIT) ----
+export function readVp3(buf) {
+  if (String.fromCharCode(...buf.subarray(0, 5)) !== '%vsm%') throw new Error('Not a VP3 file');
+  const d = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let p = 6;
+  const skipStr = () => { p += 2 + d.getUint16(p); };
+  const str8 = () => { const n = d.getUint16(p); p += 2; const t = String.fromCharCode(...buf.subarray(p, p + n)); p += n; return t; };
+  const i32 = () => { const v = d.getInt32(p); p += 4; return v; };
+  skipStr(); p += 7; skipStr(); p += 32;
+  const centreX = i32() / 100, centreY = -i32() / 100; // file units are 1/1000 mm
+  p += 27; skipStr(); p += 24; skipStr();
+  const nColors = d.getUint16(p); p += 2;
+  const b = new Builder(), threads = [];
+  for (let c = 0; c < nColors; c++) {
+    p += 3;
+    const end = d.getUint32(p) + p + 4; p += 4;
+    const ax = i32() / 100 + centreX, ay = -i32() / 100 + centreY;
+    if (ax !== 0 && ay !== 0) b.rel('jump', ax - b.x, ay - b.y);
+    const nParts = buf[p]; p += 2;
+    let rgb = 0;
+    for (let m = 0; m < nParts; m++) { rgb = (buf[p] << 16) | (buf[p + 1] << 8) | buf[p + 2]; p += 6; }
+    p += 2;
+    const code = str8(), desc = str8(); str8();
+    threads.push({ rgb, name: desc || code || `Color ${c + 1}` });
+    p += 18;
+    while (p + 1 < end) {
+      const x = s8(buf[p]), y = s8(buf[p + 1]); p += 2;
+      if (buf[p - 2] !== 0x80) { b.rel('stitch', x, y); continue; }
+      if (y === 0x01) { b.rel('stitch', d.getInt16(p), d.getInt16(p + 2)); p += 6; }
+      else if (y === 0x03) b.mark('trim');
+    }
+    p = end;
+    if (c + 1 < nColors) b.mark('color');
+  }
+  return { threads: threads.length ? threads : [thread(null, 0)], cmds: b.cmds };
+}
+
+// format registry: extension -> reader / writer (writers are registered in formats/writers.js)
+const READERS = { pes: readPes, pec: readPec, dst: readDst, jef: readJef, exp: readExp, vp3: readVp3 };
 export const SUPPORTED_EXTENSIONS = Object.keys(READERS);
 
 export function readEmbroidery(name, bytes) {
