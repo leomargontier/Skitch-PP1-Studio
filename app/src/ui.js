@@ -4,8 +4,9 @@ import { buildRecords, encodeRecords, FX_COLOR } from './pen.js';
 import { PP1, STATUS, errorText, isNewer } from './pp1.js';
 import { WRITERS } from './formats/writers.js';
 import { writePes } from './formats/pes-writer.js';
-import { analyze, defaultObjects, stitchObjects, threadName, PX } from './image.js';
-import { patternToImportShapes, fileObjectsToRaw, patternToRaw } from './import.js';
+import { analyze, defaultObjects, threadName, PX } from './image.js';
+import { patternToImportShapes } from './import.js';
+import { compose, lift, fileObjects, shift } from './compose.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view'), ctx = canvas.getContext('2d');
@@ -38,7 +39,8 @@ async function loadFile(name, bytes) {
   try {
     if (IMAGE.test(name)) return await loadImage(name, bytes);
     const objects = patternToImportShapes(readEmbroidery(name, bytes));
-    setDesign(name, toPattern(fileObjectsToRaw(objects)), { model: null, objects, sel: -1 });
+    const edit = { model: null, objects, sel: -1 };
+    setDesign(name, toPattern(compose(edit)), edit);
     log(`Opened ${name}: ${objects.length} shapes`);
   } catch (e) { state.adding = false; log(`Could not open ${name}: ${e.message}`); alert(e.message); }
 }
@@ -46,7 +48,7 @@ async function loadFile(name, bytes) {
 // undo/redo: snapshots of what the user can change
 const history = { past: [], future: [] };
 const snapshot = () => ({ file: state.file, raw: state.raw, rotate: state.rotate, flip: state.flip, scale: state.scale, move: { ...state.move },
-  edit: state.edit && { ...state.edit, objects: structuredClone(state.edit.objects) } });
+  edit: state.edit && { ...state.edit, objects: state.edit.objects.map((o) => ({ ...o })) } }); // edits replace object fields, never mutate arrays
 function remember() {
   if (!state.raw) return;
   history.past.push(snapshot()); history.future = [];
@@ -71,9 +73,15 @@ function setDesign(name, pat, edit = null) {
   const add = state.adding && state.pattern;
   state.adding = false;
   remember();
-  if (add) { // combined designs are split into machine-file shapes, so they stay editable
-    const objects = patternToImportShapes(patternToRaw(stack(state.pattern, pat)));
-    pat = toPattern(fileObjectsToRaw(objects)); name = `${state.file} + ${name}`; edit = { model: null, objects, sel: -1 };
+  if (add) { // the new design goes under the current one; both keep their objects (pictures stay re-digitizable)
+    const turned = state.rotate || state.flip || state.scale !== 100;
+    const base = turned || !state.edit ? fileObjects(state.pattern) : lift(state.edit); // a turned design is kept as its stitches
+    const baseRaw = turned ? state.pattern : state.raw;
+    const extra = edit ? lift(edit) : fileObjects(pat);
+    const ba = bounds(baseRaw), bb = bounds(pat);
+    const dx = Math.round((ba.x0 + ba.x1) / 2 - (bb.x0 + bb.x1) / 2), dy = ba.y1 + 30 - bb.y0;
+    edit = { model: null, objects: [...base, ...extra.map((o) => shift(o, dx, dy))], sel: -1 };
+    pat = toPattern(compose(edit)); name = `${state.file} + ${name}`;
   }
   Object.assign(state, { file: name, raw: pat, rotate: 0, flip: false, scale: 100, move: add ? state.move : { x: 0, y: 0 }, edit });
   $('angle').value = 0; $('scale').value = 100;
@@ -107,7 +115,7 @@ $('txtGo').onclick = () => {
     const model = analyze(g.getImageData(0, 0, c.width, c.height), { colors: 1, minArea: 4 });
     const edit = { model, objects: defaultObjects(model), sel: -1 };
     state.adding = $('txtAdd').checked;
-    setDesign(`"${text.slice(0, 20)}"`, toPattern(stitchObjects(model, edit.objects)), edit);
+    setDesign(`"${text.slice(0, 20)}"`, toPattern(compose(edit)), edit);
     textDlg.close();
     log(`Lettering: ${stitchCount(state.pattern).toLocaleString()} stitches in total`);
   } catch (e) { log(`Lettering failed: ${e.message}`); alert(e.message); }
@@ -130,7 +138,7 @@ $('imgGo').onclick = () => {
     };
     const model = analyze(g.getImageData(0, 0, w, h), opts);
     const edit = { model, objects: defaultObjects(model, opts), sel: -1 };
-    setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(stitchObjects(model, edit.objects)), edit);
+    setDesign(name.replace(IMAGE, '') + ' (from picture)', toPattern(compose(edit)), edit);
     $('imgDlg').close();
     log(`Made ${stitchCount(state.pattern).toLocaleString()} stitches from ${name}. Check it, then send it or save it as .pes`);
   } catch (e) { log(`Picture failed: ${e.message}`); alert(e.message); }
@@ -153,7 +161,7 @@ function rebuild() {
 const TYPE_NAME = { auto: 'Auto', satin: 'Satin', fill: 'Fill', contour: 'Contour', circular: 'Circular', outline: 'Outline', triple: 'Triple run' };
 const objOf = () => state.edit?.objects[state.edit.sel];
 // picture/lettering objects are re-digitized; machine-file shapes replay their stitches
-const restitch = (ed) => (ed.model ? stitchObjects(ed.model, ed.objects) : fileObjectsToRaw(ed.objects));
+const restitch = compose;
 function renderObjects() {
   const ed = state.edit;
   $('objCard').hidden = !ed;
@@ -162,7 +170,7 @@ function renderObjects() {
     let label;
     if (o.kind === 'file') label = `${o.stitches.length.toLocaleString()} stitches${o.trimAfter ? ' · trim' : ''}`;
     else {
-      const a = ed.model.areas[o.area], t = o.type === 'auto' ? (a.thin ? 'Satin' : 'Fill') : TYPE_NAME[o.type];
+      const a = (o.model || ed.model).areas[o.area], t = o.type === 'auto' ? (a.thin ? 'Satin' : 'Fill') : TYPE_NAME[o.type];
       label = `${t} · ${mm((a.box.x1 - a.box.x0 + 1) * PX)} × ${mm((a.box.y1 - a.box.y0 + 1) * PX)} mm`;
     }
     return `<li data-i="${i}" class="${i === ed.sel ? 'sel' : ''} ${o.hidden ? 'hid' : ''}"><input type="checkbox" data-show title="Show / hide" ${o.hidden ? '' : 'checked'}><span class="swatch" style="background:${hex(o.rgb)}"></span>${i + 1}. ${label}</li>`;
@@ -302,7 +310,7 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(p, size / 2 - half); ctx.lineTo(p, size / 2 + half);
     ctx.moveTo(size / 2 - half, p); ctx.lineTo(size / 2 + half, p); ctx.stroke();
   }
-  if (!state.pattern) return;
+  if (!state.pattern) { drawPreview(toPx); return; }
   const { x: mx, y: my } = state.move;
   // thread look: each stitch is a shaded strand (dark edge, light centre), about 0.4 mm wide
   const tw = Math.max(1.2, scale * 4);
@@ -340,7 +348,84 @@ function draw() {
     ctx.fillStyle = css.getPropertyValue('--danger');
     ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
   }
+  drawPreview(toPx);
 }
+
+// ---------- drawing tools: click points, double-click or Enter to finish, Esc to cancel ----------
+// state.draw = { kind: 'shape'|'line', pts: [[x, y]] in hoop coordinates (0.1 mm from the hoop centre), hover }
+function drawPreview(toPx) {
+  const d = state.draw;
+  if (!d || !d.pts.length) return;
+  const pts = d.hover ? [...d.pts, d.hover] : d.pts;
+  ctx.strokeStyle = $('drawColor').value; ctx.fillStyle = $('drawColor').value; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => { const [px, py] = toPx(x, y); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  if (d.kind === 'shape') ctx.closePath();
+  ctx.stroke(); ctx.setLineDash([]);
+  for (const [x, y] of d.pts) { const [px, py] = toPx(x, y); ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI * 2); ctx.fill(); }
+}
+const hoopPoint = (e) => {
+  const r = canvas.getBoundingClientRect(), { size, scale } = view(), k = canvas.width / r.width;
+  return [Math.round(((e.clientX - r.left) * k - size / 2) / scale), Math.round(((e.clientY - r.top) * k - size / 2) / scale)];
+};
+function startDraw(kind) {
+  state.draw = { kind, pts: [], hover: null };
+  canvas.classList.add('drawing');
+  log(kind === 'shape' ? 'Draw a shape: click its corners, double-click or press Enter to finish, Esc to cancel' : 'Draw a line: click its points, double-click or press Enter to finish, Esc to cancel');
+}
+$('drawShape').onclick = () => startDraw('shape');
+$('drawLine').onclick = () => startDraw('line');
+const endDraw = () => { state.draw = null; canvas.classList.remove('drawing'); draw(); };
+// a running line: stitches every 2.5 mm along the clicked points (triple: there, back, there)
+function runObject(pts, rgb, triple) {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 25));
+    for (let k = 1; k <= n; k++) out.push([Math.round(ax + ((bx - ax) * k) / n), Math.round(ay + ((by - ay) * k) / n)]);
+  }
+  const stitches = triple ? [...out, ...out.slice(0, -1).reverse(), ...out.slice(1)] : out;
+  return { kind: 'file', rgb, name: threadName(rgb), stitches, tieOn: true, tieOff: true, trimAfter: true, hidden: false };
+}
+// a filled shape or a wide line: drawn into a small picture and digitized like one (fill, or satin when thin)
+function rasterObjects(pts, kind, width, rgb) {
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]), m = width / 2 + 4 * PX;
+  const x0 = Math.min(...xs) - m, y0 = Math.min(...ys) - m;
+  const W = Math.ceil((Math.max(...xs) + m - x0) / PX), H = Math.ceil((Math.max(...ys) + m - y0) / PX);
+  const c = new OffscreenCanvas(W, H), g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  g.beginPath();
+  pts.forEach(([x, y], i) => { const px = (x - x0) / PX, py = (y - y0) / PX; i ? g.lineTo(px, py) : g.moveTo(px, py); });
+  if (kind === 'shape') { g.closePath(); g.fillStyle = '#000'; g.fill(); }
+  else { g.lineWidth = width / PX; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#000'; g.stroke(); }
+  let model;
+  try { model = analyze(g.getImageData(0, 0, W, H), { colors: 1, minArea: 4 }); } catch { return []; }
+  const offset = [Math.round(x0 + (W * PX) / 2), Math.round(y0 + (H * PX) / 2)];
+  return defaultObjects(model).map((o) => ({ ...o, rgb, name: threadName(rgb), model, offset }));
+}
+function finishDraw() {
+  const d = state.draw;
+  const pts = d.pts.filter((p, i) => !i || Math.hypot(p[0] - d.pts[i - 1][0], p[1] - d.pts[i - 1][1]) >= 5);
+  endDraw();
+  if (pts.length < (d.kind === 'shape' ? 3 : 2)) return;
+  if (state.pattern && (state.rotate || state.flip || state.scale !== 100)) { alert('Drawing works on a design at 0°, 100 % and not mirrored. Set Angle to 0 and Size to 100 first.'); return; }
+  // hoop -> design coordinates: with no rotation the design is only centred, so add back its centre
+  let c = [0, 0], mv = [0, 0];
+  if (state.raw) { const b = bounds(state.raw); c = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]; mv = [state.move.x, state.move.y]; }
+  const raw = pts.map(([x, y]) => [Math.round(x - mv[0] + c[0]), Math.round(y - mv[1] + c[1])]);
+  const rgb = parseInt($('drawColor').value.slice(1), 16), width = Number($('drawWidth').value);
+  const objs = d.kind === 'line' && width <= 0 ? [runObject(raw, rgb, width < 0)] : rasterObjects(raw, d.kind, d.kind === 'line' ? width : 0, rgb);
+  if (!objs.length) { alert('That is too small to sew'); return; }
+  if (state.edit) {
+    applyEdit((ed) => { ed.objects = [...lift(ed), ...objs]; ed.model = null; ed.sel = ed.objects.length - 1; });
+  } else {
+    const edit = { model: null, objects: objs, sel: 0 };
+    setDesign('Drawing', toPattern(compose(edit)), edit);
+    const b = bounds(toPattern(compose(edit)));
+    setMove((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+  }
+  log(`Added a ${d.kind}: ${objs.length} object${objs.length > 1 ? 's' : ''}`);
+}
+canvas.addEventListener('dblclick', () => { if (state.draw) finishDraw(); });
 
 function setMove(x, y) {
   state.move = { x: Math.round(x), y: Math.round(y) };
@@ -350,12 +435,14 @@ function setMove(x, y) {
 // drag to move
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
+  if (state.draw) { state.draw.pts.push(hoopPoint(e)); draw(); return; }
   if (!state.pattern) return;
   canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
   remember();
   drag = { x: e.clientX, y: e.clientY, mx: state.move.x, my: state.move.y, moved: false };
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (state.draw) { state.draw.hover = hoopPoint(e); draw(); return; }
   if (!drag) return;
   if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
   drag.moved = true;
@@ -367,8 +454,14 @@ canvas.addEventListener('pointerup', (e) => {
   drag = null; canvas.classList.remove('dragging');
 });
 window.addEventListener('keydown', (e) => {
-  if (e.target.closest('input,textarea,select,dialog')) return;
+  if (e.target.closest?.('input,textarea,select,dialog')) return;
   const mod = e.ctrlKey || e.metaKey;
+  if (state.draw) {
+    if (e.key === 'Enter') finishDraw();
+    else if (e.key === 'Escape') endDraw();
+    else if (e.key === 'Backspace') { state.draw.pts.pop(); draw(); }
+    e.preventDefault(); return;
+  }
   if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); $('undo').click(); return; }
   if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); $('redo').click(); return; }
   if (!state.pattern) return;

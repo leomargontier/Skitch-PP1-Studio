@@ -68,3 +68,4 @@ input[type=range] { accent-color: var(--accent); }
 .objlist li input { margin: 0; }
 #digiProps, #fileProps { display: contents; }
 #digiProps[hidden], #fileProps[hidden] { display: none; }
+canvas.drawing { cursor: crosshair; }

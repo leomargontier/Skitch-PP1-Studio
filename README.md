@@ -29,6 +29,8 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
   - move it earlier or later in the sewing order, or delete it (Delete key). Tab steps through the shapes;
   - convert the picture again with other colours or background settings.
 - A stitch player shows the sewing order stitch by stitch.
+- Drawing tools: "✎ Shape" draws a filled shape (click its corners), "✎ Line" draws a running-stitch, triple-run or 2/3/5 mm satin line. Drawn shapes are objects like any other: change their stitch type, angle, density and colour later.
+- Combining designs ("Add design…", lettering added under a design, drawing on a design) keeps every part editable.
 - Saves as Brother `.pes` (version 1, with thumbnails) in one click, or exports to `.dst`, `.pec`, `.jef`, `.exp`, `.vp3`, `.u01`, `.xxx`, `.tbf` or `.gcode` with a summary of stitches, shapes, colour changes, size and sewing time.
 - Updates the machine firmware from Brother's public download server, after checking the file's checksum, model and version.
 - Makes lettering from any installed font, and adds text, pictures or other designs under the current one.
@@ -76,7 +78,7 @@ The protocol and file format were recovered from Brother Artspira 2.9.10 for And
 - Artspira also supports Wi-Fi machines and Brother's cutting machines. Wi-Fi machines need Brother's cloud account, so they are not supported. The Snip cutting machine is not supported either: Artspira converts every cut file on a Brother cloud server, and that conversion has no offline equivalent.
 - Lettering uses the fonts installed on your computer. Letters smaller than about 5 mm come out rough.
 - The picture converter works best with logos and flat colours; photos come out posterised.
-- The app has no stitch-by-stitch editor or drawing tools. Combined designs move as one piece; after "Add design…" a converted picture's shapes become fixed-stitch shapes (colour, order, visibility, ties and trims stay editable).
+- The app has no stitch-by-stitch editor, no node editing of drawn shapes and no pattern fills beyond tatami, contour and circular. Combined designs move as one piece. Drawing needs the design at 0°, 100 % and not mirrored; adding to a rotated design keeps that design as fixed stitches.
 - The firmware updater copies Artspira's steps but has not been run on a real machine. Interrupting an update can leave the machine unusable.
 
 Hoopbridge is not affiliated with Brother Industries. "Brother", "SKITCH" and "Artspira" are trademarks of their owners.
