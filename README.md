@@ -25,7 +25,7 @@ It does the Skitch part of Brother Artspira. It opens a design, places it in the
   - It adds pull compensation, travels only inside the shape (never over bare fabric) and drops stitches too short to sew.
   - It removes the background even when it is off-white, shaded or noisy (JPEG), including the holes inside letters and rings. A tolerance slider sets how much counts as background.
 - Edits converted pictures and lettering shape by shape, re-stitching each shape when its settings change. Click a shape on the design or in the Objects list, then:
-  - change its stitch type (satin, tatami fill or outline only), fill angle, row spacing, stitch length, pull compensation, underlay, edge outline and thread colour;
+  - change its stitch type (satin, tatami fill, contour fill that follows the edge, circular fill, running-stitch outline or triple-run outline), fill angle, row spacing, stitch length, pull compensation, underlay, edge outline and thread colour;
   - move it earlier or later in the sewing order, or delete it (Delete key). Tab steps through the shapes;
   - convert the picture again with other colours or background settings.
 - A stitch player shows the sewing order stitch by stitch.

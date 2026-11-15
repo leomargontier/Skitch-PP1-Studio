@@ -284,3 +284,19 @@ test('every writer round-trips through our readers: same colours, stitches and s
     assert.deepEqual(size(back), size(pat), `${ext} size`);
   }
 });
+
+import { analyze, defaultObjects, stitchObjects } from '../src/image.js';
+test('contour, circular, outline and triple-run objects stay inside their shape', () => {
+  const w = 120, h = 120, data = new Uint8ClampedArray(w * h * 4).fill(255);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const r = Math.hypot(x - 60, y - 60); if (r < 50 && r > 20) data.set([30, 90, 200, 255], (y * w + x) * 4); }
+  const model = analyze({ width: w, height: h, data }, { colors: 1 });
+  const counts = {};
+  for (const type of ['contour', 'circular', 'outline', 'triple']) {
+    const { cmds } = stitchObjects(model, defaultObjects(model).map((o) => ({ ...o, type })));
+    const st = cmds.filter((c) => c.t === 'stitch');
+    for (const c of st) { const r = Math.hypot(c.x, c.y) / PX; assert.ok(r > 18 && r < 52, `${type} stitch at r=${r}`); }
+    counts[type] = st.length;
+  }
+  assert.ok(counts.triple >= counts.outline * 2.5, 'triple run sews the outline three times');
+  assert.ok(counts.contour > counts.outline * 4, 'contour fill has many rings');
+});

@@ -377,6 +377,74 @@ export function stitchObjects(model, objects) {
     stitchTo(...loop.at(-1));
   };
 
+  // every boundary (outer edges and holes) of the pixels where inside(x, y) holds, Moore-traced, in units
+  const contours = (inside, box) => {
+    const dirs = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+    const seen = new Set(), out = [];
+    for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) {
+      if (!inside(x, y) || seen.has(y * w + x)) continue;
+      const o = [6, 0, 2, 4].find((k) => !inside(x + dirs[k][0], y + dirs[k][1])); // an outside neighbour (N, E, S, W)
+      if (o === undefined) continue;
+      const pts = [[x, y]];
+      seen.add(y * w + x);
+      let cx_ = x, cy_ = y, d = (o + 2) % 8;
+      for (let guard = 0; guard < 4 * w * h; guard++) {
+        let moved = false;
+        for (let k = 0; k < 8; k++) {
+          const nd = (d + 6 + k) % 8, nx = cx_ + dirs[nd][0], ny = cy_ + dirs[nd][1];
+          if (inside(nx, ny)) { cx_ = nx; cy_ = ny; d = nd; moved = true; break; }
+        }
+        if (!moved || (cx_ === x && cy_ === y)) break;
+        pts.push([cx_, cy_]); seen.add(cy_ * w + cx_);
+      }
+      // mark the rest of this boundary's pixels so it is not traced again from another start
+      if (pts.length >= 4) out.push(pts.map(([px, py]) => [Math.round(px * PX + PX / 2 - cx), Math.round(py * PX + PX / 2 - cy)]));
+    }
+    return out;
+  };
+  // contour fill: rings that follow the edge, one row spacing apart, from the outside in
+  const contourFill = (a, len) => {
+    const step = Math.max(1, gap) * 3; // edge distance is in thirds of a pixel
+    for (let level = 1.5; ; level += step) {
+      const rings = contours((x, y) => x >= 0 && y >= 0 && x < w && y < h && comp[y * w + x] === a.id && edge[y * w + x] >= level, a.box);
+      if (!rings.length) break;
+      for (const r of rings) sewLoop(r, len);
+    }
+  };
+  // circular fill: circles around the area's centre, clipped to the area
+  const circularFill = (a, len) => {
+    const [ux, uy] = a.centre, c = [(ux + cx) / PX, (uy + cy) / PX];
+    const R = Math.hypot(a.box.x1 - a.box.x0, a.box.y1 - a.box.y0);
+    const rows = [];
+    for (let r = gap / 2, row = 0; r <= R; r += gap, row++) {
+      const n = Math.max(12, Math.ceil((2 * Math.PI * r * PX) / Math.min(len, 25)));
+      let run = [];
+      const runs = [];
+      for (let i = 0; i <= n; i++) {
+        const t = (i / n) * 2 * Math.PI, x = c[0] + r * Math.cos(t), y = c[1] + r * Math.sin(t);
+        const xi = Math.floor(x), yi = Math.floor(y);
+        if (xi >= 0 && yi >= 0 && xi < w && yi < h && comp[yi * w + xi] === a.id) run.push([Math.round(x * PX - cx), Math.round(y * PX - cy)]);
+        else if (run.length) { runs.push(run); run = []; }
+      }
+      if (run.length) runs.push(run);
+      // a full circle starts and ends at angle 0: join the two halves
+      if (runs.length > 1 && runs[0][0] && runs.at(-1).at(-1) && Math.hypot(...sub(runs[0][0], runs.at(-1).at(-1))) < 1) runs[0] = [...runs.pop(), ...runs[0]];
+      rows.push(runs.filter((q) => q.length > 1).map((q) => (row % 2 ? q.reverse() : q)));
+    }
+    for (const runs of rows) for (const q of runs) { goTo(...q[0]); for (const p of q.slice(1)) stitchTo(...p, len); }
+  };
+  // running stitch around a closed loop, starting nearest the needle; triple = there, back, there again
+  const sewLoop = (pts, len, triple = false) => {
+    if (pts.length < 4) return;
+    let k = 0, bd = Infinity;
+    pts.forEach((p, i) => { const dd = pos ? Math.hypot(...sub(p, pos)) : 0; if (dd < bd) { bd = dd; k = i; } });
+    const loop = [...pts.slice(k), ...pts.slice(0, k + 1)], keep = [loop[0]];
+    for (const p of loop.slice(1)) if (Math.hypot(...sub(p, keep.at(-1))) >= Math.min(len, 20)) keep.push(p);
+    keep.push(loop.at(-1));
+    goTo(...keep[0]);
+    const passes = triple ? [keep, keep.slice().reverse(), keep] : [keep];
+    for (const pass of passes) for (const p of pass.slice(1)) stitchTo(...p, len);
+  };
   const satinTiles = (a) => {
     const T = 20, tiles = [];
     for (let y0 = a.box.y0; y0 <= a.box.y1; y0 += T) for (let x0 = a.box.x0; x0 <= a.box.x1; x0 += T) {
@@ -522,7 +590,11 @@ export function stitchObjects(model, objects) {
     area = a.id;
     const start = cmds.length;
     const thin = o.type === 'satin' || (o.type === 'auto' && a.thin);
-    if (o.type === 'outline') sewOutline(outlineOf(a.id, a.box));
+    if (o.type === 'outline' || o.type === 'triple') for (const r of contours((x, y) => x >= 0 && y >= 0 && x < w && y < h && comp[y * w + x] === a.id, a.box)) sewLoop(r, 25, o.type === 'triple');
+    else if (o.type === 'contour' || o.type === 'circular') {
+      if (underlay && a.area >= 100) fill(scan(a.id, a.box, o.angle + 90, 20 / PX, 2, 0), 40, 0);
+      if (o.type === 'contour') contourFill(a, Math.min(stitch, 25)); else circularFill(a, stitch);
+    }
     else if (thin) {
       const sat = skeletonSatin(a) ? null : bestSatinAngle(a.id, a.box); // strokes follow their centreline
       if (sat && sat.long <= 0.1) {

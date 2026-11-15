@@ -150,7 +150,7 @@ function rebuild() {
 }
 
 // ---------- object editor (pictures and lettering made here) ----------
-const TYPE_NAME = { auto: 'Auto', satin: 'Satin', fill: 'Fill', outline: 'Outline' };
+const TYPE_NAME = { auto: 'Auto', satin: 'Satin', fill: 'Fill', contour: 'Contour', circular: 'Circular', outline: 'Outline', triple: 'Triple run' };
 const objOf = () => state.edit?.objects[state.edit.sel];
 // picture/lettering objects are re-digitized; machine-file shapes replay their stitches
 const restitch = (ed) => (ed.model ? stitchObjects(ed.model, ed.objects) : fileObjectsToRaw(ed.objects));
